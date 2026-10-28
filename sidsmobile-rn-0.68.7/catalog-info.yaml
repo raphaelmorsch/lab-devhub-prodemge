@@ -1,0 +1,16 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: sidsmobile-rn068
+  title: SISP Mobile (React Native 0.68.7)
+  description: >
+    Aplicação de exemplo do laboratório. Reproduz o contrato de build Android
+    da versão React Native 0.68.7 (branch master). Não é o código institucional
+    do SISP Mobile.
+  tags:
+    - react-native
+    - android
+spec:
+  type: application
+  lifecycle: production
+  owner: prodemge

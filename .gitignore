@@ -1,0 +1,10 @@
+local/
+*.kubeconfig
+kubeconfig
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.jks
+secrets/
