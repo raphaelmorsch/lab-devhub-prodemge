@@ -1,0 +1,158 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: mobile-app-onboarding
+  title: Onboarding de aplicação mobile
+  description: >
+    Registra uma aplicação React Native já existente no catálogo e gera o
+    pipeline Tekton de Clone, Dependencies, Build e Sign. A publicação na
+    loja mock fica reservada e não executa.
+  tags:
+    - react-native
+    - android
+    - tekton
+spec:
+  owner: prodemge
+  type: service
+  parameters:
+    - title: Aplicação existente
+      required:
+        - component_id
+        - source_url
+        - stack
+      properties:
+        component_id:
+          title: Nome no catálogo
+          type: string
+          description: Identificador único. Use letras minúsculas, números e hífen.
+          pattern: '^[a-z][a-z0-9-]{1,28}$'
+          ui:field: EntityNamePicker
+        title:
+          title: Título
+          type: string
+          default: SISP Mobile
+        description:
+          title: Descrição
+          type: string
+          default: Aplicação mobile registrada pelo template de onboarding do laboratório PRODEMGE.
+        owner:
+          title: Dono
+          type: string
+          default: prodemge
+        source_url:
+          title: URL Git do repositório existente
+          type: string
+          description: Clone URL da aplicação, por exemplo https://gitlab-gitlab.apps.cluster-br764.dyn.redhatworkshops.io/development/sidsmobile.git. O template não altera esse código.
+        source_revision:
+          title: Branch ou tag
+          type: string
+          default: main
+          description: Para as referências institucionais, master é a 0.68.7 e b-atualizacao-react é a 0.87.1.
+        stack:
+          title: Pilha React Native
+          type: string
+          default: rn-0.87.1
+          enum:
+            - rn-0.68.7
+            - rn-0.87.1
+          enumNames:
+            - React Native 0.68.7 (Node 16, JDK 11)
+            - React Native 0.87.1 (Node 24, JDK 17)
+        flavor:
+          title: Flavor do build
+          type: string
+          default: homologacao
+          enum:
+            - desenvolvimento
+            - homologacao
+            - treinamento
+            - producao
+    - title: Onde publicar os manifestos
+      required:
+        - repo
+      properties:
+        repo:
+          title: Repositório dos manifestos
+          type: object
+          description: O código da aplicação permanece no repositório de origem. Aqui fica só o catálogo e o pipeline.
+          properties:
+            host:
+              title: Host
+              type: string
+              default: gitlab-gitlab.apps.cluster-br764.dyn.redhatworkshops.io
+              enum:
+                - gitlab-gitlab.apps.cluster-br764.dyn.redhatworkshops.io
+            owner:
+              title: Grupo
+              type: string
+              default: development
+              enum:
+                - development
+
+  steps:
+    - id: fetch-catalog
+      name: Gerar a entidade do catálogo
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          component_id: ${{ parameters.component_id }}
+          title: ${{ parameters.title }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          source_url: ${{ parameters.source_url }}
+          source_revision: ${{ parameters.source_revision }}
+          stack: ${{ parameters.stack }}
+          flavor: ${{ parameters.flavor }}
+          host: ${{ parameters.repo.host }}
+          destination: ${{ parameters.repo.owner }}/${{ parameters.component_id }}-onboarding
+
+    - id: fetch-pipeline
+      name: Gerar o pipeline Tekton
+      action: fetch:template
+      input:
+        url: ./pipeline
+        targetPath: ./pipeline
+        values:
+          component_id: ${{ parameters.component_id }}
+          source_url: ${{ parameters.source_url }}
+          source_revision: ${{ parameters.source_revision }}
+          stack: ${{ parameters.stack }}
+          flavor: ${{ parameters.flavor }}
+
+    - id: publish
+      name: Publicar catálogo e pipeline
+      action: publish:gitlab
+      input:
+        repoUrl: "${{ parameters.repo.host }}?owner=${{ parameters.repo.owner }}&repo=${{ parameters.component_id }}-onboarding"
+        repoVisibility: public
+
+    - id: register
+      name: Registrar no Software Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+    - id: apply-pipeline
+      name: Configurar o build no OpenShift
+      action: argocd:create-resources
+      input:
+        appName: ${{ parameters.component_id }}-pipeline
+        projectName: ${{ parameters.component_id }}-pipeline
+        argoInstance: main
+        namespace: prodemge
+        repoUrl: https://${{ parameters.repo.host }}/${{ parameters.repo.owner }}/${{ parameters.component_id }}-onboarding.git
+        path: pipeline
+        labelValue: ${{ parameters.component_id }}
+
+  output:
+    links:
+      - title: Repositório dos manifestos
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: Abrir no catálogo
+        icon: catalog
+        entityRef: ${{ steps.register.output.entityRef }}
+      - title: Pipeline no OpenShift
+        url: https://console-openshift-console.apps.cluster-br764.dyn.redhatworkshops.io/k8s/ns/prodemge/tekton.dev~v1beta1~Pipeline/${{ parameters.component_id }}-android
+        icon: kind:pod

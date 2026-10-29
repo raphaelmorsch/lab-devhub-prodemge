@@ -1,0 +1,39 @@
+{%- if values.stack == "rn-0.68.7" -%}
+{%- set node_version = "16.20.2" -%}
+{%- set java_image = "image-registry.openshift-image-registry.svc:5000/openshift/ubi8-openjdk-11:1.18" -%}
+{%- set compile_sdk = "33" -%}
+{%- set build_tools = "30.0.2" -%}
+{%- set ndk_version = "21.3.6528147" -%}
+{%- else -%}
+{%- set node_version = "24.12.0" -%}
+{%- set java_image = "image-registry.openshift-image-registry.svc:5000/openshift/ubi8-openjdk-17:1.18" -%}
+{%- set compile_sdk = "37" -%}
+{%- set build_tools = "37.0.0" -%}
+{%- set ndk_version = "27.1.12297006" -%}
+{%- endif -%}
+{%- set gradle = {
+  "desenvolvimento": "assembleDesenvolvimentoRelease",
+  "homologacao": "assembleHomologacaoRelease",
+  "treinamento": "assembleTreinamentoRelease",
+  "producao": "assembleProducaoRelease"
+} -%}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ values.component_id }}-build
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+data:
+  source-url: ${{ values.source_url | dump }}
+  source-revision: ${{ values.source_revision | dump }}
+  stack: ${{ values.stack | dump }}
+  flavor: ${{ values.flavor | dump }}
+  gradle-task: ${{ gradle[values.flavor] | dump }}
+  node-version: ${{ node_version | dump }}
+  java-image: ${{ java_image | dump }}
+  compile-sdk: ${{ compile_sdk | dump }}
+  build-tools: ${{ build_tools | dump }}
+  ndk-version: ${{ ndk_version | dump }}
+  mock-store-url: ""
+  publish: pending

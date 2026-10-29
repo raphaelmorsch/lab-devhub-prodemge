@@ -1,0 +1,26 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: ${{ values.component_id }}-publish
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+spec:
+  description: Reserva a publicação na loja mock. O pipeline não executa este passo.
+  params:
+    - name: java-image
+      type: string
+    - name: mock-store-url
+      type: string
+      default: ""
+  workspaces:
+    - name: source
+  steps:
+    - name: publish
+      image: $(params.java-image)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        echo "A loja mock ainda não existe. A publicação não está implementada."
+        echo "URL configurada: $(params.mock-store-url)"
+        exit 1

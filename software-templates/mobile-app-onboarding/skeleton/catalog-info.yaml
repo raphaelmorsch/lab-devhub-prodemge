@@ -1,0 +1,31 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.component_id | dump }}
+  title: ${{ values.title | dump }}
+  description: ${{ values.description | dump }}
+  annotations:
+    backstage.io/kubernetes-id: ${{ values.component_id | dump }}
+    backstage.io/kubernetes-namespace: prodemge
+    janus-idp.io/tekton: ${{ values.component_id | dump }}
+    janus-idp.io/tekton-enabled: "true"
+    backstage.io/source-location: url:${{ values.source_url }}
+    {%- set source_slug = values.source_url
+      | replace('https://gitlab-gitlab.apps.cluster-br764.dyn.redhatworkshops.io/', '')
+      | replace('.git', '') -%}
+    {%- if 'gitlab-gitlab.apps.cluster-br764.dyn.redhatworkshops.io' in values.source_url %}
+    gitlab.com/project-slug: ${{ source_slug | dump }}
+    {%- else %}
+    gitlab.com/project-slug: ${{ values.destination | dump }}
+    {%- endif %}
+    prodemge.io/react-native: ${{ values.stack | dump }}
+    prodemge.io/android-flavor: ${{ values.flavor | dump }}
+    prodemge.io/mock-store: pending
+  tags:
+    - react-native
+    - android
+    - tekton
+spec:
+  type: application
+  lifecycle: production
+  owner: ${{ values.owner | dump }}

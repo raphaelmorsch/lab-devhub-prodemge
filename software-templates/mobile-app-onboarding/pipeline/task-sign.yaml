@@ -1,0 +1,60 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: ${{ values.component_id }}-sign
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+spec:
+  description: Confere a assinatura do APK e assina com a keystore de demonstração se ainda estiver sem assinatura.
+  params:
+    - name: java-image
+      type: string
+    - name: flavor
+      type: string
+    - name: keystore-path
+      type: string
+      default: android/app/sisp-mobile.keystore
+    - name: key-alias
+      type: string
+      default: sisp-mobile-demo
+    - name: keystore-password
+      type: string
+      default: prodemge-demo
+    - name: key-password
+      type: string
+      default: prodemge-demo
+  workspaces:
+    - name: source
+  steps:
+    - name: sign
+      image: $(params.java-image)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        SRC="$(workspaces.source.path)"
+        TOOLS="${SRC}/.ci-tools"
+        export HOME="${TOOLS}/home"
+        export ANDROID_SDK_ROOT="${TOOLS}/android-sdk"
+        export ANDROID_HOME="${ANDROID_SDK_ROOT}"
+        flavor="$(params.flavor)"
+        apk_dir="${SRC}/android/app/build/outputs/apk/${flavor}/release"
+        apk="$$(find "${apk_dir}" -type f -name '*.apk' | head -n 1)"
+        if [ -z "${apk}" ]; then
+          echo "APK não encontrado em ${apk_dir}"
+          exit 1
+        fi
+        build_tools="$$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+        signer="${build_tools}/apksigner"
+        if "${signer}" verify "${apk}"; then
+          echo "APK já assinado: ${apk}"
+        else
+          "${signer}" sign \
+            --ks "${SRC}/$(params.keystore-path)" \
+            --ks-key-alias "$(params.key-alias)" \
+            --ks-pass "pass:$(params.keystore-password)" \
+            --key-pass "pass:$(params.key-password)" \
+            "${apk}"
+          "${signer}" verify "${apk}"
+          echo "APK assinado: ${apk}"
+        fi

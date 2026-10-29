@@ -1,0 +1,79 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: ${{ values.component_id }}-dependencies
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+spec:
+  description: Instala Node, dependências npm e o Android SDK no workspace.
+  params:
+    - name: java-image
+      type: string
+    - name: node-version
+      type: string
+    - name: compile-sdk
+      type: string
+    - name: build-tools
+      type: string
+    - name: ndk-version
+      type: string
+  workspaces:
+    - name: source
+  steps:
+    - name: install
+      image: $(params.java-image)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        SRC="$(workspaces.source.path)"
+        TOOLS="${SRC}/.ci-tools"
+        mkdir -p "${TOOLS}/home"
+        export HOME="${TOOLS}/home"
+        if [ -z "${JAVA_HOME:-}" ]; then
+          JAVA_HOME="$$(dirname "$$(dirname "$$(readlink -f "$$(command -v java)")")")"
+          export JAVA_HOME
+        fi
+
+        arch="$$(uname -m)"
+        case "${arch}" in
+          x86_64) node_arch="x64" ;;
+          aarch64) node_arch="arm64" ;;
+          *) echo "Arquitetura não suportada: ${arch}"; exit 1 ;;
+        esac
+
+        node_version="$(params.node-version)"
+        if [ ! -x "${TOOLS}/node/bin/node" ]; then
+          curl -fsSL "https://nodejs.org/dist/v${node_version}/node-v${node_version}-linux-${node_arch}.tar.gz" -o "${TOOLS}/node.tgz"
+          tar -xzf "${TOOLS}/node.tgz" -C "${TOOLS}"
+          mv "${TOOLS}/node-v${node_version}-linux-${node_arch}" "${TOOLS}/node"
+        fi
+        export PATH="${TOOLS}/node/bin:${PATH}"
+        node -v
+        npm -v
+
+        cd "${SRC}"
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          npm install
+        fi
+
+        export ANDROID_SDK_ROOT="${TOOLS}/android-sdk"
+        export ANDROID_HOME="${ANDROID_SDK_ROOT}"
+        if [ ! -x "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" ]; then
+          mkdir -p "${TOOLS}/cmdline-extract"
+          curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -o "${TOOLS}/cmdline-tools.zip"
+          (cd "${TOOLS}/cmdline-extract" && jar xf "${TOOLS}/cmdline-tools.zip")
+          mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools"
+          rm -rf "${ANDROID_SDK_ROOT}/cmdline-tools/latest"
+          mv "${TOOLS}/cmdline-extract/cmdline-tools" "${ANDROID_SDK_ROOT}/cmdline-tools/latest"
+        fi
+        sdkmanager="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+        set +o pipefail
+        yes | "${sdkmanager}" --sdk_root="${ANDROID_SDK_ROOT}" --licenses >/dev/null || true
+        set -o pipefail
+        "${sdkmanager}" --sdk_root="${ANDROID_SDK_ROOT}" \
+          "platforms;android-$(params.compile-sdk)" \
+          "build-tools;$(params.build-tools)" \
+          "ndk;$(params.ndk-version)"

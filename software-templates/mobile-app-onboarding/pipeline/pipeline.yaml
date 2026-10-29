@@ -1,0 +1,144 @@
+{%- if values.stack == "rn-0.68.7" -%}
+{%- set node_version = "16.20.2" -%}
+{%- set java_image = "image-registry.openshift-image-registry.svc:5000/openshift/ubi8-openjdk-11:1.18" -%}
+{%- set compile_sdk = "33" -%}
+{%- set build_tools = "30.0.2" -%}
+{%- set ndk_version = "21.3.6528147" -%}
+{%- else -%}
+{%- set node_version = "24.12.0" -%}
+{%- set java_image = "image-registry.openshift-image-registry.svc:5000/openshift/ubi8-openjdk-17:1.18" -%}
+{%- set compile_sdk = "37" -%}
+{%- set build_tools = "37.0.0" -%}
+{%- set ndk_version = "27.1.12297006" -%}
+{%- endif -%}
+{%- set gradle = {
+  "desenvolvimento": "assembleDesenvolvimentoRelease",
+  "homologacao": "assembleHomologacaoRelease",
+  "treinamento": "assembleTreinamentoRelease",
+  "producao": "assembleProducaoRelease"
+} -%}
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: ${{ values.component_id }}-android
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+    type: pipeline
+spec:
+  description: Clone, dependências, build e assinatura do APK. Publish permanece desligado.
+  params:
+    - name: source-url
+      type: string
+      default: ${{ values.source_url | dump }}
+    - name: source-revision
+      type: string
+      default: ${{ values.source_revision | dump }}
+    - name: flavor
+      type: string
+      default: ${{ values.flavor | dump }}
+    - name: gradle-task
+      type: string
+      default: ${{ gradle[values.flavor] | dump }}
+    - name: java-image
+      type: string
+      default: ${{ java_image | dump }}
+    - name: node-version
+      type: string
+      default: ${{ node_version | dump }}
+    - name: compile-sdk
+      type: string
+      default: ${{ compile_sdk | dump }}
+    - name: build-tools
+      type: string
+      default: ${{ build_tools | dump }}
+    - name: ndk-version
+      type: string
+      default: ${{ ndk_version | dump }}
+    - name: enable-publish
+      type: string
+      description: A publicação só entra na execução quando este valor é true. O padrão é false.
+      default: "false"
+    - name: mock-store-url
+      type: string
+      default: ""
+  workspaces:
+    - name: source
+  tasks:
+    - name: clone
+      taskRef:
+        kind: ClusterTask
+        name: git-clone
+      params:
+        - name: url
+          value: $(params.source-url)
+        - name: revision
+          value: $(params.source-revision)
+        - name: deleteExisting
+          value: "true"
+      workspaces:
+        - name: output
+          workspace: source
+    - name: dependencies
+      runAfter:
+        - clone
+      taskRef:
+        name: ${{ values.component_id }}-dependencies
+      params:
+        - name: java-image
+          value: $(params.java-image)
+        - name: node-version
+          value: $(params.node-version)
+        - name: compile-sdk
+          value: $(params.compile-sdk)
+        - name: build-tools
+          value: $(params.build-tools)
+        - name: ndk-version
+          value: $(params.ndk-version)
+      workspaces:
+        - name: source
+          workspace: source
+    - name: build
+      runAfter:
+        - dependencies
+      taskRef:
+        name: ${{ values.component_id }}-build
+      params:
+        - name: java-image
+          value: $(params.java-image)
+        - name: gradle-task
+          value: $(params.gradle-task)
+      workspaces:
+        - name: source
+          workspace: source
+    - name: sign
+      runAfter:
+        - build
+      taskRef:
+        name: ${{ values.component_id }}-sign
+      params:
+        - name: java-image
+          value: $(params.java-image)
+        - name: flavor
+          value: $(params.flavor)
+      workspaces:
+        - name: source
+          workspace: source
+    - name: publish
+      runAfter:
+        - sign
+      when:
+        - input: "$(params.enable-publish)"
+          operator: in
+          values:
+            - "true"
+      taskRef:
+        name: ${{ values.component_id }}-publish
+      params:
+        - name: java-image
+          value: $(params.java-image)
+        - name: mock-store-url
+          value: $(params.mock-store-url)
+      workspaces:
+        - name: source
+          workspace: source
