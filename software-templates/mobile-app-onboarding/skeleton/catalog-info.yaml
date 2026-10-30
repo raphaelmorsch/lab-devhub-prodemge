@@ -20,7 +20,7 @@ metadata:
     {%- endif %}
     prodemge.io/react-native: ${{ values.stack | dump }}
     prodemge.io/android-flavor: ${{ values.flavor | dump }}
-    prodemge.io/mock-store: pending
+    prodemge.io/mock-store: http://app-store-mock.prodemge.svc:8080
   tags:
     - react-native
     - android

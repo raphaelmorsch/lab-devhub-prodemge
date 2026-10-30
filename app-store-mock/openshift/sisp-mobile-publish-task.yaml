@@ -1,0 +1,97 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: sisp-mobile-publish
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: sisp-mobile
+spec:
+  description: Publica o APK assinado na App Store Mock (multipart POST).
+  params:
+    - name: java-image
+      type: string
+    - name: mock-store-url
+      type: string
+    - name: app-id
+      type: string
+      default: sisp-mobile
+    - name: flavor
+      type: string
+    - name: react-native-version
+      type: string
+      default: rn-0.87.1
+  workspaces:
+    - name: source
+  steps:
+    - name: publish
+      image: image-registry.openshift-image-registry.svc:5000/openshift/nodejs:22-ubi8
+      env:
+        - name: PIPELINE_RUN
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['tekton.dev/pipelineRun']
+        - name: TASK_RUN
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['tekton.dev/taskRun']
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        SRC="$(workspaces.source.path)"
+        if [ -d "${SRC}/sidsmobile-rn-0.87.1" ]; then
+          SRC="${SRC}/sidsmobile-rn-0.87.1"
+        elif [ -d "${SRC}/sidsmobile-rn-0.68.7" ]; then
+          SRC="${SRC}/sidsmobile-rn-0.68.7"
+        fi
+
+        STORE_URL="$(params.mock-store-url)"
+        STORE_URL="${STORE_URL%/}"
+        if [ -z "${STORE_URL}" ]; then
+          echo "param mock-store-url está vazio"
+          exit 1
+        fi
+
+        flavor="$(params.flavor)"
+        app_id="$(params.app-id)"
+        apk_dir="${SRC}/android/app/build/outputs/apk/${flavor}/release"
+        apk=`find "${apk_dir}" -type f -name '*.apk' | head -n 1`
+        if [ -z "${apk}" ]; then
+          echo "APK não encontrado em ${apk_dir}"
+          exit 1
+        fi
+
+        version_name="unknown"
+        version_code=""
+        if [ -f "${SRC}/android/app/build.gradle" ]; then
+          version_name=`grep -E "versionName\s+\"" "${SRC}/android/app/build.gradle" | head -n 1 | sed -E 's/.*versionName[[:space:]]+"([^"]+)".*/\1/' || true`
+          version_code=`grep -E "versionCode\s+[0-9]+" "${SRC}/android/app/build.gradle" | head -n 1 | sed -E 's/.*versionCode[[:space:]]+([0-9]+).*/\1/' || true`
+        fi
+        [ -n "${version_name}" ] || version_name="unknown"
+
+        git_commit=""
+        if command -v git >/dev/null 2>&1; then
+          git_commit=`git -C "$(workspaces.source.path)" rev-parse HEAD 2>/dev/null || true`
+        fi
+
+        endpoint="${STORE_URL}/api/apps/${app_id}/releases"
+        echo "Publicando ${apk} em ${endpoint}"
+
+        response=`curl -fsS -X POST \
+          -F "apk=@${apk};type=application/vnd.android.package-archive" \
+          -F "versionName=${version_name}" \
+          -F "versionCode=${version_code}" \
+          -F "flavor=${flavor}" \
+          -F "environment=${flavor}" \
+          -F "reactNativeVersion=$(params.react-native-version)" \
+          -F "gitCommit=${git_commit}" \
+          -F "pipelineRun=${PIPELINE_RUN:-}" \
+          -F "taskRun=${TASK_RUN:-}" \
+          -F "buildResult=success" \
+          "${endpoint}"`
+
+        echo "${response}"
+        download_path=`node -e 'const d=JSON.parse(process.argv[1]); process.stdout.write(d.downloadPath||"")' "${response}"`
+        if [ -n "${download_path}" ]; then
+          echo "Download: ${STORE_URL}${download_path}"
+        fi
+        echo "Publicação concluída."

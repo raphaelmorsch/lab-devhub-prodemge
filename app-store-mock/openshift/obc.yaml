@@ -1,0 +1,10 @@
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: app-store-mock-bucket
+  namespace: prodemge
+  labels:
+    app.kubernetes.io/name: app-store-mock
+spec:
+  generateBucketName: app-store-mock
+  storageClassName: openshift-storage.noobaa.io

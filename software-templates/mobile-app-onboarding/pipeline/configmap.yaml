@@ -35,5 +35,6 @@ data:
   compile-sdk: ${{ compile_sdk | dump }}
   build-tools: ${{ build_tools | dump }}
   ndk-version: ${{ ndk_version | dump }}
-  mock-store-url: ""
-  publish: pending
+  mock-store-url: "http://app-store-mock.prodemge.svc:8080"
+  enable-publish: "true"
+  publish: ready

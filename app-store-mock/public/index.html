@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PRODEMGE App Store Mock</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow">Ambiente demonstrativo</p>
+        <h1>PRODEMGE App Store</h1>
+        <p class="lead">
+          Loja mock da PoC. Recebe APKs publicados pela esteira Tekton e
+          disponibiliza o download para validação.
+        </p>
+      </div>
+      <span class="badge">Mock</span>
+    </header>
+
+    <main>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Aplicações publicadas</h2>
+          <button id="refresh" type="button">Atualizar</button>
+        </div>
+        <p id="status" class="status">Carregando…</p>
+        <div id="apps" class="apps"></div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

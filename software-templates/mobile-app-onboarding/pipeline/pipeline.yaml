@@ -26,7 +26,7 @@ metadata:
     backstage.io/kubernetes-id: ${{ values.component_id }}
     type: pipeline
 spec:
-  description: Clone, dependências, build e assinatura do APK. Publish permanece desligado.
+  description: Clone, dependências, build, assinatura e publicação opcional na App Store Mock.
   params:
     - name: source-url
       type: string
@@ -57,11 +57,14 @@ spec:
       default: ${{ ndk_version | dump }}
     - name: enable-publish
       type: string
-      description: A publicação só entra na execução quando este valor é true. O padrão é false.
-      default: "false"
+      description: Quando true, publica o APK na App Store Mock após o Sign.
+      default: "true"
     - name: mock-store-url
       type: string
-      default: ""
+      default: "http://app-store-mock.prodemge.svc:8080"
+    - name: app-id
+      type: string
+      default: ${{ values.component_id | dump }}
   workspaces:
     - name: source
   tasks:
@@ -139,6 +142,10 @@ spec:
           value: $(params.java-image)
         - name: mock-store-url
           value: $(params.mock-store-url)
+        - name: app-id
+          value: $(params.app-id)
+        - name: flavor
+          value: $(params.flavor)
       workspaces:
         - name: source
           workspace: source
