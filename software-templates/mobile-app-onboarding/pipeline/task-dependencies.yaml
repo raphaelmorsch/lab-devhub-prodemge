@@ -6,7 +6,7 @@ metadata:
   labels:
     backstage.io/kubernetes-id: ${{ values.component_id }}
 spec:
-  description: Instala Node, dependências npm e o Android SDK no workspace.
+  description: Instala Node, JDK, dependências npm e o Android SDK no workspace.
   params:
     - name: java-image
       type: string
@@ -22,23 +22,25 @@ spec:
     - name: source
   steps:
     - name: install
-      image: $(params.java-image)
+      image: image-registry.openshift-image-registry.svc:5000/openshift/nodejs:22-ubi8
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
         SRC="$(workspaces.source.path)"
+        if [ -d "${SRC}/sidsmobile-rn-0.87.1" ]; then
+          SRC="${SRC}/sidsmobile-rn-0.87.1"
+        elif [ -d "${SRC}/sidsmobile-rn-0.68.7" ]; then
+          SRC="${SRC}/sidsmobile-rn-0.68.7"
+        fi
         TOOLS="${SRC}/.ci-tools"
+        umask 000
         mkdir -p "${TOOLS}/home"
         export HOME="${TOOLS}/home"
-        if [ -z "${JAVA_HOME:-}" ]; then
-          JAVA_HOME="$$(dirname "$$(dirname "$$(readlink -f "$$(command -v java)")")")"
-          export JAVA_HOME
-        fi
 
-        arch="$$(uname -m)"
+        arch=`uname -m`
         case "${arch}" in
-          x86_64) node_arch="x64" ;;
-          aarch64) node_arch="arm64" ;;
+          x86_64) node_arch="x64"; jdk_arch="x64" ;;
+          aarch64) node_arch="arm64"; jdk_arch="aarch64" ;;
           *) echo "Arquitetura não suportada: ${arch}"; exit 1 ;;
         esac
 
@@ -52,6 +54,18 @@ spec:
         node -v
         npm -v
 
+        # JDK portátil no workspace: evita misturar UIDs da imagem OpenJDK com a Node.
+        if [ ! -x "${TOOLS}/jdk/bin/java" ]; then
+          curl -fsSL "https://api.adoptium.net/v3/binary/latest/17/ga/linux/${jdk_arch}/jdk/hotspot/normal/eclipse?project=jdk" -o "${TOOLS}/jdk.tgz"
+          mkdir -p "${TOOLS}/jdk-extract"
+          tar -xzf "${TOOLS}/jdk.tgz" -C "${TOOLS}/jdk-extract"
+          mv "${TOOLS}/jdk-extract"/jdk-17* "${TOOLS}/jdk"
+          rmdir "${TOOLS}/jdk-extract" 2>/dev/null || rm -rf "${TOOLS}/jdk-extract"
+        fi
+        export JAVA_HOME="${TOOLS}/jdk"
+        export PATH="${JAVA_HOME}/bin:${PATH}"
+        java -version
+
         cd "${SRC}"
         if [ -f package-lock.json ]; then
           npm ci
@@ -61,19 +75,40 @@ spec:
 
         export ANDROID_SDK_ROOT="${TOOLS}/android-sdk"
         export ANDROID_HOME="${ANDROID_SDK_ROOT}"
-        if [ ! -x "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" ]; then
-          mkdir -p "${TOOLS}/cmdline-extract"
-          curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -o "${TOOLS}/cmdline-tools.zip"
-          (cd "${TOOLS}/cmdline-extract" && jar xf "${TOOLS}/cmdline-tools.zip")
-          mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools"
-          rm -rf "${ANDROID_SDK_ROOT}/cmdline-tools/latest"
-          mv "${TOOLS}/cmdline-extract/cmdline-tools" "${ANDROID_SDK_ROOT}/cmdline-tools/latest"
-        fi
+        # Sempre usa cmdline-tools recente: versões antigas não listam platforms;android-37.0.
+        mkdir -p "${TOOLS}/cmdline-extract"
+        curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-16111833_latest.zip" -o "${TOOLS}/cmdline-tools.zip"
+        rm -rf "${TOOLS}/cmdline-extract" "${ANDROID_SDK_ROOT}/cmdline-tools/latest"
+        mkdir -p "${TOOLS}/cmdline-extract" "${ANDROID_SDK_ROOT}/cmdline-tools"
+        unzip -q "${TOOLS}/cmdline-tools.zip" -d "${TOOLS}/cmdline-extract"
+        mv "${TOOLS}/cmdline-extract/cmdline-tools" "${ANDROID_SDK_ROOT}/cmdline-tools/latest"
         sdkmanager="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
         set +o pipefail
         yes | "${sdkmanager}" --sdk_root="${ANDROID_SDK_ROOT}" --licenses >/dev/null || true
         set -o pipefail
-        "${sdkmanager}" --sdk_root="${ANDROID_SDK_ROOT}" \
-          "platforms;android-$(params.compile-sdk)" \
-          "build-tools;$(params.build-tools)" \
-          "ndk;$(params.ndk-version)"
+
+        compile_sdk="$(params.compile-sdk)"
+        build_tools="$(params.build-tools)"
+        ndk_version="$(params.ndk-version)"
+
+        # A partir da API 37 o repositório Google publica platforms;android-37.0 (não android-37).
+        platform_pkg="platforms;android-${compile_sdk}"
+        if ! "${sdkmanager}" --sdk_root="${ANDROID_SDK_ROOT}" --list 2>/dev/null | grep -Fq "${platform_pkg}"; then
+          if "${sdkmanager}" --sdk_root="${ANDROID_SDK_ROOT}" --list 2>/dev/null | grep -Fq "platforms;android-${compile_sdk}.0"; then
+            platform_pkg="platforms;android-${compile_sdk}.0"
+          fi
+        fi
+        echo "Instalando ${platform_pkg}, build-tools;${build_tools}, ndk;${ndk_version}"
+        "${sdkmanager}" --sdk_root="${ANDROID_SDK_ROOT}" "${platform_pkg}" "build-tools;${build_tools}" "ndk;${ndk_version}"
+
+        # O AGP com compileSdk 37 procura platforms/android-37.
+        if [ ! -d "${ANDROID_SDK_ROOT}/platforms/android-${compile_sdk}" ]; then
+          ext=`ls -1d "${ANDROID_SDK_ROOT}/platforms"/android-${compile_sdk}.* 2>/dev/null | sort | tail -n 1 || true`
+          if [ -n "${ext}" ]; then
+            ln -sfn "$(basename "${ext}")" "${ANDROID_SDK_ROOT}/platforms/android-${compile_sdk}"
+            echo "Link platforms/android-${compile_sdk} -> $(basename "${ext}")"
+          fi
+        fi
+
+        # Garante escrita para os próximos steps (mesmo com fsGroup).
+        chmod -R a+rwX "${TOOLS}" "${SRC}/node_modules" 2>/dev/null || true

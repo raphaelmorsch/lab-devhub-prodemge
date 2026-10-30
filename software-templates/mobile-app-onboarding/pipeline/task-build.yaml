@@ -16,16 +16,23 @@ spec:
     - name: source
   steps:
     - name: assemble
-      image: $(params.java-image)
+      image: image-registry.openshift-image-registry.svc:5000/openshift/nodejs:22-ubi8
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
         SRC="$(workspaces.source.path)"
+        if [ -d "${SRC}/sidsmobile-rn-0.87.1" ]; then
+          SRC="${SRC}/sidsmobile-rn-0.87.1"
+        elif [ -d "${SRC}/sidsmobile-rn-0.68.7" ]; then
+          SRC="${SRC}/sidsmobile-rn-0.68.7"
+        fi
         TOOLS="${SRC}/.ci-tools"
         export HOME="${TOOLS}/home"
+        export JAVA_HOME="${TOOLS}/jdk"
         export ANDROID_SDK_ROOT="${TOOLS}/android-sdk"
         export ANDROID_HOME="${ANDROID_SDK_ROOT}"
-        export PATH="${TOOLS}/node/bin:${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools:${PATH}"
+        export PATH="${TOOLS}/node/bin:${JAVA_HOME}/bin:${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools:${PATH}"
+        java -version
+        node -v
         cd "${SRC}/android"
-        chmod +x ./gradlew
-        ./gradlew "$(params.gradle-task)" --no-daemon --stacktrace
+                bash ./gradlew "$(params.gradle-task)" --no-daemon --stacktrace

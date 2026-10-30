@@ -28,23 +28,30 @@ spec:
     - name: source
   steps:
     - name: sign
-      image: $(params.java-image)
+      image: image-registry.openshift-image-registry.svc:5000/openshift/nodejs:22-ubi8
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
         SRC="$(workspaces.source.path)"
+        if [ -d "${SRC}/sidsmobile-rn-0.87.1" ]; then
+          SRC="${SRC}/sidsmobile-rn-0.87.1"
+        elif [ -d "${SRC}/sidsmobile-rn-0.68.7" ]; then
+          SRC="${SRC}/sidsmobile-rn-0.68.7"
+        fi
         TOOLS="${SRC}/.ci-tools"
         export HOME="${TOOLS}/home"
+        export JAVA_HOME="${TOOLS}/jdk"
         export ANDROID_SDK_ROOT="${TOOLS}/android-sdk"
         export ANDROID_HOME="${ANDROID_SDK_ROOT}"
+        export PATH="${JAVA_HOME}/bin:${PATH}"
         flavor="$(params.flavor)"
         apk_dir="${SRC}/android/app/build/outputs/apk/${flavor}/release"
-        apk="$$(find "${apk_dir}" -type f -name '*.apk' | head -n 1)"
+        apk=`find "${apk_dir}" -type f -name '*.apk' | head -n 1`
         if [ -z "${apk}" ]; then
           echo "APK não encontrado em ${apk_dir}"
           exit 1
         fi
-        build_tools="$$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+        build_tools=`find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1`
         signer="${build_tools}/apksigner"
         if "${signer}" verify "${apk}"; then
           echo "APK já assinado: ${apk}"
