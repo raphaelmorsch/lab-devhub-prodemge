@@ -32,6 +32,10 @@ const upload = multer({
 const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '2mb' }));
+app.use(
+  '/vendor/patternfly',
+  express.static(path.join(__dirname, 'node_modules/@patternfly/patternfly')),
+);
 app.use(express.static(path.join(__dirname, 'public')));
 
 function s3Client() {

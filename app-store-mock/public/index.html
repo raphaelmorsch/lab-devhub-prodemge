@@ -4,31 +4,55 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PRODEMGE App Store Mock</title>
+    <link rel="stylesheet" href="/vendor/patternfly/patternfly.min.css" />
+    <link rel="stylesheet" href="/vendor/patternfly/patternfly-addons.css" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header class="top">
-      <div class="brand">
-        <p class="eyebrow">Ambiente demonstrativo</p>
-        <h1>PRODEMGE App Store</h1>
-        <p class="lead">
-          Loja mock da PoC. Recebe APKs publicados pela esteira Tekton e
-          disponibiliza o download para validação.
-        </p>
-      </div>
-      <span class="badge">Mock</span>
-    </header>
-
-    <main>
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Aplicações publicadas</h2>
-          <button id="refresh" type="button">Atualizar</button>
+    <div class="pf-v5-c-page" id="page-layout-default-nav">
+      <header class="pf-v5-c-masthead" role="banner">
+        <div class="pf-v5-c-masthead__main app-masthead-main">
+          <a class="pf-v5-c-masthead__brand" href="/">
+            <span class="pf-v5-c-brand app-brand-mark" aria-hidden="true">PG</span>
+            <span class="app-brand-text">PRODEMGE App Store</span>
+          </a>
+          <span class="pf-v5-c-label pf-m-orange app-masthead-label">
+            <span class="pf-v5-c-label__content">Mock · PoC</span>
+          </span>
         </div>
-        <p id="status" class="status">Carregando…</p>
-        <div id="apps" class="apps"></div>
-      </section>
-    </main>
+      </header>
+
+      <main class="pf-v5-c-page__main" tabindex="-1" id="main-content">
+        <section class="pf-v5-c-page__main-section pf-m-light">
+          <div class="pf-v5-l-flex pf-m-align-items-center pf-m-justify-content-space-between pf-m-gap-md">
+            <div>
+              <p class="pf-v5-c-content app-eyebrow">
+                <small>Ambiente demonstrativo · Red Hat Developer Hub</small>
+              </p>
+              <h1 class="pf-v5-c-title pf-m-2xl">Aplicações publicadas</h1>
+              <p class="pf-v5-c-content pf-v5-u-mt-sm pf-v5-u-color-200">
+                APKs recebidos da esteira Tekton e disponibilizados para validação.
+              </p>
+            </div>
+            <button
+              id="refresh"
+              class="pf-v5-c-button pf-m-secondary"
+              type="button"
+            >
+              <span class="pf-v5-c-button__icon pf-m-start">
+                <i class="fas fa-sync-alt" aria-hidden="true"></i>
+              </span>
+              Atualizar
+            </button>
+          </div>
+        </section>
+
+        <section class="pf-v5-c-page__main-section">
+          <div id="status-alert" class="pf-v5-u-mb-md" hidden></div>
+          <div id="apps" class="pf-v5-l-gallery pf-m-gutter"></div>
+        </section>
+      </main>
+    </div>
 
     <script src="/app.js"></script>
   </body>

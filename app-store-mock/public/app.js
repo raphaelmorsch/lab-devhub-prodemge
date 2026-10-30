@@ -1,7 +1,7 @@
 async function loadApps() {
-  const status = document.getElementById('status');
+  const alertRoot = document.getElementById('status-alert');
   const root = document.getElementById('apps');
-  status.textContent = 'Carregando…';
+  setAlert(alertRoot, 'info', 'Carregando aplicações…');
   root.innerHTML = '';
 
   try {
@@ -11,58 +11,105 @@ async function loadApps() {
     const items = data.items || [];
 
     if (!items.length) {
-      status.textContent = 'Nenhuma aplicação publicada ainda.';
-      root.innerHTML = '<p class="empty">Publique um APK pela esteira Tekton para aparecer aqui.</p>';
+      alertRoot.hidden = true;
+      root.innerHTML = emptyState();
       return;
     }
 
-    status.textContent = `${items.length} aplicação(ões)`;
-    root.innerHTML = items
-      .map((app) => {
-        const latest = app.latest || {};
-        const download = latest.downloadPath
-          ? `<a href="${latest.downloadPath}">Baixar APK</a>`
-          : '';
-        return `
-          <article class="card">
-            <div class="card-top">
-              <h3>${escapeHtml(app.id)}</h3>
-              <span class="pill">${app.releaseCount} release(s)</span>
-            </div>
-            <div class="meta">
-              <div>
-                <span>Versão</span>
-                <strong>${escapeHtml(latest.versionName || '—')}</strong>
-              </div>
-              <div>
-                <span>Ambiente</span>
-                <strong>${escapeHtml(latest.environment || latest.flavor || '—')}</strong>
-              </div>
-              <div>
-                <span>Publicado em</span>
-                <strong>${escapeHtml(formatDate(latest.createdAt))}</strong>
-              </div>
-              <div>
-                <span>Commit</span>
-                <strong>${escapeHtml(short(latest.gitCommit) || '—')}</strong>
-              </div>
-              <div>
-                <span>Tamanho</span>
-                <strong>${formatBytes(latest.apkSizeBytes)}</strong>
-              </div>
-              <div>
-                <span>PipelineRun</span>
-                <strong>${escapeHtml(latest.pipelineRun || '—')}</strong>
-              </div>
-            </div>
-            <div class="actions">${download}</div>
-          </article>
-        `;
-      })
-      .join('');
+    setAlert(
+      alertRoot,
+      'success',
+      `${items.length} aplicação(ões) disponível(is) para download.`,
+    );
+    root.innerHTML = items.map(renderAppCard).join('');
   } catch (err) {
-    status.textContent = `Falha ao carregar: ${err.message}`;
+    setAlert(alertRoot, 'danger', `Falha ao carregar: ${err.message}`);
+    root.innerHTML = '';
   }
+}
+
+function renderAppCard(app) {
+  const latest = app.latest || {};
+  const download = latest.downloadPath
+    ? `<a class="pf-v5-c-button pf-m-primary" href="${escapeAttr(latest.downloadPath)}">
+         <span class="pf-v5-c-button__icon pf-m-start">
+           <i class="fas fa-download" aria-hidden="true"></i>
+         </span>
+         Baixar APK
+       </a>`
+    : '';
+
+  return `
+    <div class="pf-v5-c-card pf-m-display-lg" id="card-${escapeAttr(app.id)}">
+      <div class="pf-v5-c-card__header">
+        <div class="pf-v5-c-card__header-main">
+          <h2 class="pf-v5-c-title pf-m-lg app-card-title">${escapeHtml(app.id)}</h2>
+        </div>
+        <div class="pf-v5-c-card__actions">
+          <span class="pf-v5-c-label pf-m-blue">
+            <span class="pf-v5-c-label__content">${escapeHtml(String(app.releaseCount))} release(s)</span>
+          </span>
+        </div>
+      </div>
+      <div class="pf-v5-c-card__body">
+        <dl class="pf-v5-c-description-list pf-m-2-col-on-lg">
+          ${descItem('Versão', latest.versionName || '—')}
+          ${descItem('Ambiente', latest.environment || latest.flavor || '—')}
+          ${descItem('Publicado em', formatDate(latest.createdAt))}
+          ${descItem('Commit', short(latest.gitCommit) || '—')}
+          ${descItem('Tamanho', formatBytes(latest.apkSizeBytes))}
+          ${descItem('PipelineRun', latest.pipelineRun || '—')}
+        </dl>
+      </div>
+      <div class="pf-v5-c-card__footer">
+        ${download}
+      </div>
+    </div>
+  `;
+}
+
+function descItem(term, value) {
+  return `
+    <div class="pf-v5-c-description-list__group">
+      <dt class="pf-v5-c-description-list__term">
+        <span class="pf-v5-c-description-list__text">${escapeHtml(term)}</span>
+      </dt>
+      <dd class="pf-v5-c-description-list__description">
+        <div class="pf-v5-c-description-list__text app-meta-value">${escapeHtml(value)}</div>
+      </dd>
+    </div>
+  `;
+}
+
+function emptyState() {
+  return `
+    <div class="pf-v5-c-empty-state pf-m-lg">
+      <div class="pf-v5-c-empty-state__content">
+        <i class="fas fa-box-open pf-v5-c-empty-state__icon" aria-hidden="true"></i>
+        <h2 class="pf-v5-c-title pf-m-lg">Nenhuma aplicação publicada</h2>
+        <div class="pf-v5-c-empty-state__body">
+          Publique um APK pela esteira Tekton para aparecer aqui.
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function setAlert(el, variant, message) {
+  const icons = {
+    info: 'fa-info-circle',
+    success: 'fa-check-circle',
+    danger: 'fa-exclamation-circle',
+  };
+  el.hidden = false;
+  el.innerHTML = `
+    <div class="pf-v5-c-alert pf-m-${variant}" aria-label="${escapeAttr(variant)}">
+      <div class="pf-v5-c-alert__icon">
+        <i class="fas ${icons[variant] || icons.info}" aria-hidden="true"></i>
+      </div>
+      <p class="pf-v5-c-alert__title">${escapeHtml(message)}</p>
+    </div>
+  `;
 }
 
 function escapeHtml(value) {
@@ -71,6 +118,10 @@ function escapeHtml(value) {
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replaceAll("'", '&#39;');
 }
 
 function short(value) {
