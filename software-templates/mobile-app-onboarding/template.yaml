@@ -5,8 +5,8 @@ metadata:
   title: Onboarding de aplicação mobile
   description: >
     Registra uma aplicação React Native já existente no catálogo e gera o
-    pipeline Tekton de Clone, Dependencies, Build e Sign. A publicação na
-    loja mock fica reservada e não executa.
+    pipeline Tekton de Clone, Dependencies, Build, Sign e Publish na App
+    Store Mock, com Application Argo CD para a visão de CD no Developer Hub.
   tags:
     - react-native
     - android

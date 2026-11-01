@@ -9,6 +9,8 @@ metadata:
     backstage.io/kubernetes-namespace: prodemge
     janus-idp.io/tekton: ${{ values.component_id | dump }}
     janus-idp.io/tekton-enabled: "true"
+    argocd/app-selector: backstage-name=${{ values.component_id }}
+    argocd/instance-name: main
     backstage.io/source-location: url:${{ values.source_url }}
     {%- set source_slug = values.source_url
       | replace('https://gitlab-gitlab.apps.cluster-br764.dyn.redhatworkshops.io/', '')
@@ -25,6 +27,7 @@ metadata:
     - react-native
     - android
     - tekton
+    - gitops
 spec:
   type: application
   lifecycle: production

@@ -1,0 +1,20 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: app-store-mock
+  title: PRODEMGE App Store Mock
+  description: Loja mock que recebe APKs da esteira Tekton e disponibiliza download.
+  annotations:
+    backstage.io/kubernetes-id: app-store-mock
+    backstage.io/kubernetes-namespace: prodemge
+    argocd/app-selector: backstage-name=app-store-mock
+    argocd/instance-name: main
+    gitlab.com/project-slug: development/app-store-mock-gitops
+  tags:
+    - gitops
+    - android
+    - mock-store
+spec:
+  type: service
+  lifecycle: experimental
+  owner: prodemge

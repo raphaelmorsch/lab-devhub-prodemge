@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-store-mock
+  namespace: prodemge
+  labels:
+    app.kubernetes.io/name: app-store-mock
+    rht-gitops.com/janus-argocd: app-store-mock
+spec:
+  selector:
+    app.kubernetes.io/name: app-store-mock
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
