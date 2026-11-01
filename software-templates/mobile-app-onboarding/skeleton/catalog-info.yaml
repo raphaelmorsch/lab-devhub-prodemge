@@ -13,9 +13,10 @@ metadata:
     argocd/instance-name: main
     backstage.io/source-location: url:${{ values.source_url }}
     {%- set source_slug = values.source_url
-      | replace('https://gitlab-gitlab.apps.cluster-br764.dyn.redhatworkshops.io/', '')
+      | replace('https://' ~ values.host ~ '/', '')
+      | replace('https://gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com/', '')
       | replace('.git', '') -%}
-    {%- if 'gitlab-gitlab.apps.cluster-br764.dyn.redhatworkshops.io' in values.source_url %}
+    {%- if values.host in values.source_url %}
     gitlab.com/project-slug: ${{ source_slug | dump }}
     {%- else %}
     gitlab.com/project-slug: ${{ values.destination | dump }}

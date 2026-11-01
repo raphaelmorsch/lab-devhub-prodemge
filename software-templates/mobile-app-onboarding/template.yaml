@@ -42,7 +42,7 @@ spec:
         source_url:
           title: URL Git do repositório existente
           type: string
-          description: Clone URL da aplicação, por exemplo https://gitlab-gitlab.apps.cluster-br764.dyn.redhatworkshops.io/development/sidsmobile.git. O template não altera esse código.
+          description: Clone URL da aplicação, por exemplo https://gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com/development/sidsmobile.git. O template não altera esse código.
         source_revision:
           title: Branch ou tag
           type: string
@@ -77,11 +77,12 @@ spec:
           description: O código da aplicação permanece no repositório de origem. Aqui fica só o catálogo e o pipeline.
           properties:
             host:
-              title: Host
+              title: Host do GitLab
               type: string
-              default: gitlab-gitlab.apps.cluster-br764.dyn.redhatworkshops.io
+              description: Deve coincidir com integrations.gitlab.host do Developer Hub.
+              default: gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com
               enum:
-                - gitlab-gitlab.apps.cluster-br764.dyn.redhatworkshops.io
+                - gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com
             owner:
               title: Grupo
               type: string
@@ -154,5 +155,5 @@ spec:
         icon: catalog
         entityRef: ${{ steps.register.output.entityRef }}
       - title: Pipeline no OpenShift
-        url: https://console-openshift-console.apps.cluster-br764.dyn.redhatworkshops.io/k8s/ns/prodemge/tekton.dev~v1beta1~Pipeline/${{ parameters.component_id }}-android
+        url: https://console-openshift-console.apps.ocp.bct9l.sandbox1479.opentlc.com/k8s/ns/prodemge/tekton.dev~v1beta1~Pipeline/${{ parameters.component_id }}-android
         icon: kind:pod
