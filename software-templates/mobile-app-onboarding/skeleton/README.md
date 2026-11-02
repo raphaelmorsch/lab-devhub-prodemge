@@ -15,3 +15,5 @@ Um push na branch `${{ values.source_revision }}` de `${{ values.source_url }}` 
 Somente alterações em `${{ values.source_subdirectory }}` disparam esta versão. Outra versão no mesmo repositório não inicia esta esteira.
 {%- endif %}
 A Route do webhook é `${{ values.component_id }}-push`, no namespace `prodemge`. O segredo compartilhado com o Git fica no Secret `${{ values.component_id }}-webhook`. O workspace continua sendo o PVC `${{ values.component_id }}-source`.
+
+Na topologia do componente, o Deployment `${{ values.component_id }}-code` tem o ícone de editar código. Ele abre o OpenShift Dev Spaces na revisão `${{ values.source_revision }}`{%- if values.source_subdirectory %} da pasta `${{ values.source_subdirectory }}`{%- endif %}.

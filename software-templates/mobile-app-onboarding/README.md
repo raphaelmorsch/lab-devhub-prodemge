@@ -10,4 +10,6 @@ O pipeline executa Clone, Dependencies, Build, Sign e Publish. O Publish envia o
 
 Um push na branch configurada dispara essa esteira. O EventListener `${component_id}-push` confere o repositório e a branch do webhook. Se a pasta da versão foi informada, o push também precisa alterar arquivos dessa pasta: no monorepositório do laboratório, `sidsmobile-rn-0.87.1` dispara a pilha 0.87.1 e `sidsmobile-rn-0.68.7` dispara a pilha 0.68.7. A revisão do PipelineRun é o commit do push. O segredo do webhook fica no Secret `${component_id}-webhook`.
 
+Na topologia do componente, o ícone de editar código abre o OpenShift Dev Spaces na pasta da versão. O Deployment `${component_id}-code` carrega esse link. O catálogo não fixa `backstage.io/kubernetes-namespace`, para o Developer Hub conseguir ler o CheCluster em `openshift-devspaces`.
+
 As pilhas são React Native 0.68.7 (Node 16.20.2, JDK 11, SDK 33) e 0.87.1 (Node 24.12.0, JDK 17, SDK 37). O flavor padrão é `homologacao`, com a task `assembleHomologacaoRelease`.

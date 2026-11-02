@@ -7,7 +7,6 @@ metadata:
   description: ${{ values.description | dump }}
   annotations:
     backstage.io/kubernetes-id: ${{ values.component_id | dump }}
-    backstage.io/kubernetes-namespace: prodemge
     janus-idp.io/tekton: ${{ values.component_id | dump }}
     janus-idp.io/tekton-enabled: "true"
     argocd/app-selector: backstage-name=${{ values.component_id }}

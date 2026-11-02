@@ -1,0 +1,63 @@
+{%- set repo_web = values.source_url | replace('.git', '') | trim -%}
+{%- if repo_web.endswith('/') -%}
+{%- set repo_web = repo_web[:-1] -%}
+{%- endif -%}
+{%- if values.source_subdirectory -%}
+{%- if 'github.com' in repo_web -%}
+{%- set tree = repo_web ~ '/tree/' ~ values.source_revision ~ '/' ~ values.source_subdirectory -%}
+{%- else -%}
+{%- set tree = repo_web ~ '/-/tree/' ~ values.source_revision ~ '/' ~ values.source_subdirectory -%}
+{%- endif -%}
+{%- elif 'github.com' in repo_web -%}
+{%- set tree = repo_web ~ '/tree/' ~ values.source_revision -%}
+{%- else -%}
+{%- set tree = repo_web ~ '/-/tree/' ~ values.source_revision -%}
+{%- endif -%}
+{%- set edit_url = 'https://devspaces.apps.ocp.bct9l.sandbox1479.opentlc.com/f?url=' ~ tree ~ '&policies.create=peruser' -%}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ values.component_id }}-code
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+    app.openshift.io/runtime: nodejs
+  annotations:
+    app.openshift.io/vcs-uri: ${{ repo_web | dump }}
+    app.openshift.io/vcs-ref: ${{ values.source_revision | dump }}
+    app.openshift.io/edit-url: ${{ edit_url | dump }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ values.component_id }}-code
+  template:
+    metadata:
+      labels:
+        app: ${{ values.component_id }}-code
+        backstage.io/kubernetes-id: ${{ values.component_id }}
+        app.openshift.io/runtime: nodejs
+      annotations:
+        app.openshift.io/vcs-uri: ${{ repo_web | dump }}
+        app.openshift.io/vcs-ref: ${{ values.source_revision | dump }}
+        app.openshift.io/edit-url: ${{ edit_url | dump }}
+    spec:
+      containers:
+        - name: pause
+          image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+          imagePullPolicy: IfNotPresent
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
