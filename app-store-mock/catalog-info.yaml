@@ -2,6 +2,7 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: app-store-mock
+  namespace: default
   title: PRODEMGE App Store Mock
   description: Loja mock que recebe APKs da esteira Tekton e disponibiliza download.
   annotations:
@@ -14,7 +15,8 @@ metadata:
     - gitops
     - android
     - mock-store
+    - patternfly
 spec:
   type: service
   lifecycle: experimental
-  owner: prodemge
+  owner: group:default/rhdh

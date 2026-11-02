@@ -8,11 +8,14 @@ metadata:
 spec:
   description: PRODEMGE App Store Mock
   sourceRepos:
-    - https://gitlab-gitlab.apps.cluster-br764.dyn.redhatworkshops.io/development/app-store-mock-gitops.git
+    - https://gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com/development/app-store-mock-gitops.git
   destinations:
     - namespace: prodemge
       server: https://kubernetes.default.svc
       name: local
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -26,7 +29,7 @@ metadata:
 spec:
   project: app-store-mock
   source:
-    repoURL: https://gitlab-gitlab.apps.cluster-br764.dyn.redhatworkshops.io/development/app-store-mock-gitops.git
+    repoURL: https://gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com/development/app-store-mock-gitops.git
     path: openshift
     targetRevision: HEAD
   destination:

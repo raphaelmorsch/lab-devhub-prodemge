@@ -5,6 +5,7 @@ metadata:
   namespace: prodemge
   labels:
     app.kubernetes.io/name: app-store-mock
+    rht-gitops.com/janus-argocd: app-store-mock
 spec:
   generateBucketName: app-store-mock
   storageClassName: openshift-storage.noobaa.io

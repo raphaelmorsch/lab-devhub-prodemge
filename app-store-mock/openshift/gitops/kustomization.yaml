@@ -8,3 +8,4 @@ resources:
   - route.yaml
 commonLabels:
   app.kubernetes.io/part-of: app-store-mock
+  rht-gitops.com/janus-argocd: app-store-mock

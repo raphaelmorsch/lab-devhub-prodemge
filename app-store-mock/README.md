@@ -15,12 +15,29 @@ Loja mock da PoC: recebe APKs via API multipart e disponibiliza download na UI.
 
 No OpenShift usa ObjectBucketClaim (`openshift-storage.noobaa.io`). Localmente, sem variáveis S3, grava em `.data/`.
 
-## Deploy
+## Deploy (GitOps / Argo CD)
+
+1. Build da imagem no cluster (`BuildConfig` binário em `prodemge`):
+
+```bash
+oc new-build --name=app-store-mock --binary --strategy=docker -n prodemge || true
+oc start-build app-store-mock --from-dir=. --follow -n prodemge
+```
+
+2. Manifests runtime no GitLab `development/app-store-mock-gitops` (`openshift/`).
+
+3. Application no Janus Argo CD:
+
+```bash
+oc apply -f openshift/argocd-application.yaml
+```
+
+4. Catálogo RHDH: `catalog-info.yaml` com `argocd/app-selector: backstage-name=app-store-mock`.
+
+### Deploy manual (alternativa)
 
 ```bash
 oc apply -f openshift/obc.yaml
-oc new-build --name=app-store-mock --binary --strategy=docker -n prodemge || true
-oc start-build app-store-mock --from-dir=. --follow -n prodemge
 oc apply -f openshift/deployment.yaml
 oc get route app-store-mock -n prodemge
 ```

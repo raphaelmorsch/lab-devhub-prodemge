@@ -2,6 +2,7 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: ${{ values.component_id | dump }}
+  namespace: default
   title: ${{ values.title | dump }}
   description: ${{ values.description | dump }}
   annotations:
@@ -32,4 +33,5 @@ metadata:
 spec:
   type: application
   lifecycle: production
-  owner: ${{ values.owner | dump }}
+  owner: group:default/rhdh
+  dependsOn: ["component:default/app-store-mock"]
