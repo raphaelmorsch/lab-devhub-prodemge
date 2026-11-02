@@ -16,7 +16,7 @@ function App(): React.JSX.Element {
       <StatusBar barStyle="light-content" />
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.kicker}>Laboratório PRODEMGE</Text>
-        <Text style={styles.title}>SISP Mobile</Text>
+        <Text style={styles.title}>SISP Mobile 0.87.1</Text>
         <Text style={styles.lead}>
           Exemplo da pilha React Native 0.87.1, equivalente à branch
           b-atualizacao-react. O nome exibido no Android muda conforme o
