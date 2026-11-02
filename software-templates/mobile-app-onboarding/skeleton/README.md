@@ -8,6 +8,10 @@ O pipeline `${{ values.component_id }}-android`, no namespace `prodemge`, execut
 2. Dependencies
 3. Build (`${{ values.flavor }}`)
 4. Sign
-5. Publish, reservado. O passo existe no pipeline e fica desligado enquanto a loja mock não existir.
+5. Publish na App Store Mock
 
-Para disparar uma execução, abra o pipeline no console do OpenShift e use o PVC `${{ values.component_id }}-source` como workspace `source`.
+Um push na branch `${{ values.source_revision }}` de `${{ values.source_url }}` dispara o pipeline `${{ values.component_id }}-android`.
+{%- if values.source_subdirectory %}
+Somente alterações em `${{ values.source_subdirectory }}` disparam esta versão. Outra versão no mesmo repositório não inicia esta esteira.
+{%- endif %}
+A Route do webhook é `${{ values.component_id }}-push`, no namespace `prodemge`. O segredo compartilhado com o Git fica no Secret `${{ values.component_id }}-webhook`. O workspace continua sendo o PVC `${{ values.component_id }}-source`.

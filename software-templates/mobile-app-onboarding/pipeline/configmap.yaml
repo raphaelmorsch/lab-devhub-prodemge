@@ -27,6 +27,7 @@ metadata:
 data:
   source-url: ${{ values.source_url | dump }}
   source-revision: ${{ values.source_revision | dump }}
+  source-subdirectory: ${{ values.source_subdirectory | default('', true) | dump }}
   stack: ${{ values.stack | dump }}
   flavor: ${{ values.flavor | dump }}
   gradle-task: ${{ gradle[values.flavor] | dump }}

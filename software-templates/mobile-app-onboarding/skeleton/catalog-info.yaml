@@ -23,6 +23,9 @@ metadata:
     gitlab.com/project-slug: ${{ values.destination | dump }}
     {%- endif %}
     prodemge.io/react-native: ${{ values.stack | dump }}
+    {%- if values.source_subdirectory %}
+    prodemge.io/source-subdirectory: ${{ values.source_subdirectory | dump }}
+    {%- endif %}
     prodemge.io/android-flavor: ${{ values.flavor | dump }}
     prodemge.io/mock-store: http://app-store-mock.prodemge.svc:8080
   tags:

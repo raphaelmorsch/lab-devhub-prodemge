@@ -6,7 +6,8 @@ metadata:
   description: >
     Registra uma aplicação React Native já existente no catálogo e gera o
     pipeline Tekton de Clone, Dependencies, Build, Sign e Publish na App
-    Store Mock, com Application Argo CD para a visão de CD no Developer Hub.
+    Store Mock. Um push na branch da aplicação, na versão desta esteira,
+    dispara o pipeline. A Application Argo CD publica os manifestos.
   tags:
     - react-native
     - android
@@ -20,6 +21,7 @@ spec:
         - component_id
         - source_url
         - stack
+        - webhook_secret
       properties:
         component_id:
           title: Nome no catálogo
@@ -67,6 +69,23 @@ spec:
             - homologacao
             - treinamento
             - producao
+        source_subdirectory:
+          title: Pasta da versão no repositório
+          type: string
+          description: >
+            Preencha quando o mesmo repositório guarda mais de uma versão.
+            No laboratório, a 0.87.1 fica em sidsmobile-rn-0.87.1 e a 0.68.7
+            em sidsmobile-rn-0.68.7. O push só dispara esta esteira se alterar
+            arquivos dessa pasta. Deixe vazio quando o repositório contém só
+            a aplicação desta versão.
+        webhook_secret:
+          title: Segredo do webhook
+          type: string
+          description: >
+            Token compartilhado com o webhook de push do Git. O EventListener
+            recusa chamadas sem esse segredo. Ele fica no Secret do namespace
+            e também no repositório de manifestos.
+          ui:widget: password
     - title: Onde publicar os manifestos
       required:
         - repo
@@ -105,6 +124,7 @@ spec:
           source_revision: ${{ parameters.source_revision }}
           stack: ${{ parameters.stack }}
           flavor: ${{ parameters.flavor }}
+          source_subdirectory: ${{ parameters.source_subdirectory }}
           host: ${{ parameters.repo.host }}
           destination: ${{ parameters.repo.owner }}/${{ parameters.component_id }}-onboarding
 
@@ -120,6 +140,8 @@ spec:
           source_revision: ${{ parameters.source_revision }}
           stack: ${{ parameters.stack }}
           flavor: ${{ parameters.flavor }}
+          source_subdirectory: ${{ parameters.source_subdirectory }}
+          webhook_secret: ${{ parameters.webhook_secret }}
 
     - id: publish
       name: Publicar catálogo e pipeline
@@ -156,4 +178,7 @@ spec:
         entityRef: ${{ steps.register.output.entityRef }}
       - title: Pipeline no OpenShift
         url: https://console-openshift-console.apps.ocp.bct9l.sandbox1479.opentlc.com/k8s/ns/prodemge/tekton.dev~v1beta1~Pipeline/${{ parameters.component_id }}-android
+        icon: kind:pod
+      - title: Webhook de push
+        url: https://${{ parameters.component_id }}-push-prodemge.apps.ocp.bct9l.sandbox1479.opentlc.com
         icon: kind:pod
