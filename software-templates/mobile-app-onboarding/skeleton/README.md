@@ -6,9 +6,10 @@ O pipeline `${{ values.component_id }}-android`, no namespace `prodemge`, execut
 
 1. Clone
 2. Dependencies
-3. Build (`${{ values.flavor }}`)
-4. Sign
-5. Publish na App Store Mock
+3. Static Analysis, somente quando o flavor é `desenvolvimento`
+4. Build (`${{ values.flavor }}`)
+5. Sign
+6. Publish na App Store Mock
 
 Um push na branch `${{ values.source_revision }}` de `${{ values.source_url }}` dispara o pipeline `${{ values.component_id }}-android`.
 {%- if values.source_subdirectory %}

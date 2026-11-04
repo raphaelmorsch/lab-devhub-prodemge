@@ -26,7 +26,7 @@ metadata:
     backstage.io/kubernetes-id: ${{ values.component_id }}
     type: pipeline
 spec:
-  description: Clone, dependências, build, assinatura e publicação opcional na App Store Mock.
+  description: Clone, dependências, análise estática no flavor desenvolvimento, build, assinatura e publicação opcional na App Store Mock.
   params:
     - name: source-url
       type: string
@@ -101,9 +101,22 @@ spec:
       workspaces:
         - name: source
           workspace: source
-    - name: build
+    - name: static-analysis
       runAfter:
         - dependencies
+      when:
+        - input: "$(params.flavor)"
+          operator: in
+          values:
+            - "desenvolvimento"
+      taskRef:
+        name: ${{ values.component_id }}-static-analysis
+      workspaces:
+        - name: source
+          workspace: source
+    - name: build
+      runAfter:
+        - static-analysis
       taskRef:
         name: ${{ values.component_id }}-build
       params:

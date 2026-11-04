@@ -1,0 +1,30 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: ${{ values.component_id }}-static-analysis
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+spec:
+  description: Executa o ESLint da aplicação. O pipeline só chama esta task no flavor desenvolvimento.
+  workspaces:
+    - name: source
+  steps:
+    - name: eslint
+      image: image-registry.openshift-image-registry.svc:5000/openshift/nodejs:22-ubi8
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        SRC="$(workspaces.source.path)"
+        if [ -d "${SRC}/sidsmobile-rn-0.87.1" ]; then
+          SRC="${SRC}/sidsmobile-rn-0.87.1"
+        elif [ -d "${SRC}/sidsmobile-rn-0.68.7" ]; then
+          SRC="${SRC}/sidsmobile-rn-0.68.7"
+        fi
+        TOOLS="${SRC}/.ci-tools"
+        export HOME="${TOOLS}/home"
+        export PATH="${TOOLS}/node/bin:${PATH}"
+        node -v
+        cd "${SRC}"
+        node -e 'const p=require("./package.json"); if(!p.scripts||!p.scripts.lint){console.error("O flavor desenvolvimento exige o script npm lint."); process.exit(1)}'
+        npm run lint -- --ignore-pattern .ci-tools
