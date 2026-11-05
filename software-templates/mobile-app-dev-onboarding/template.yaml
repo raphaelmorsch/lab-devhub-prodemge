@@ -1,0 +1,219 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: mobile-app-dev-onboarding
+  title: Onboarding mobile de Desenvolvimento
+  description: >
+    Registra uma aplicação React Native já existente no catálogo e gera o
+    pipeline Tekton de Clone, Dependencies, análise estática no SonarQube,
+    Build e Publish na App Store Mock. As pilhas 0.68.7 e 0.87.1 usam o
+    flavor desenvolvimento. A 0.88.1 não tem flavor e gera assembleRelease.
+    Não há task de assinatura da APK. Um push na branch da aplicação, na
+    versão desta esteira, dispara o pipeline. A Application Argo CD publica
+    os manifestos.
+  tags:
+    - react-native
+    - android
+    - tekton
+    - sonarqube
+spec:
+  owner: prodemge
+  type: service
+  parameters:
+    - title: Aplicação existente
+      required:
+        - component_id
+        - source_url
+        - stack
+        - webhook_secret
+      properties:
+        component_id:
+          title: Nome no catálogo
+          type: string
+          description: Identificador único. Use letras minúsculas, números e hífen. Também é a chave do projeto no SonarQube.
+          pattern: '^[a-z][a-z0-9-]{1,28}$'
+          ui:field: EntityNamePicker
+        title:
+          title: Título
+          type: string
+          default: SISP Mobile
+        description:
+          title: Descrição
+          type: string
+          default: Aplicação mobile de desenvolvimento registrada pelo template do laboratório PRODEMGE.
+        owner:
+          title: Dono
+          type: string
+          default: prodemge
+        source_url:
+          title: URL Git do repositório existente
+          type: string
+          description: Clone URL da aplicação, por exemplo https://gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com/development/sidsmobile.git. O template não altera esse código.
+        source_revision:
+          title: Branch ou tag
+          type: string
+          default: main
+          description: Para as referências institucionais, master é a 0.68.7 e b-atualizacao-react é a 0.87.1. Essa revisão vira a branch principal do projeto no SonarQube.
+        stack:
+          title: Pilha React Native
+          type: string
+          default: rn-0.87.1
+          enum:
+            - rn-0.68.7
+            - rn-0.87.1
+            - rn-0.88.1
+          enumNames:
+            - React Native 0.68.7 (Node 16, JDK 11, flavor desenvolvimento)
+            - React Native 0.87.1 (Node 24, JDK 17, flavor desenvolvimento)
+            - React Native 0.88.1 (Node 24, JDK 17, sem flavor)
+        source_subdirectory:
+          title: Pasta da versão no repositório
+          type: string
+          description: >
+            Preencha quando o mesmo repositório guarda mais de uma versão.
+            No laboratório, a 0.87.1 fica em sidsmobile-rn-0.87.1 e a 0.68.7
+            em sidsmobile-rn-0.68.7. O push só dispara esta esteira se alterar
+            arquivos dessa pasta. Deixe vazio quando o repositório contém só
+            a aplicação desta versão.
+        webhook_secret:
+          title: Segredo do webhook
+          type: string
+          description: >
+            Token que você escolhe e repete no webhook de push do Git. O
+            EventListener só aceita o push se o valor coincidir. Ele vai para
+            o Secret do namespace e também para o manifesto publicado.
+          ui:field: Secret
+    - title: SonarQube
+      required:
+        - sonarqube_token
+      properties:
+        sonarqube_base_url:
+          title: URL do SonarQube
+          type: string
+          default: http://sonarqube.sonarqube.svc.cluster.local:9000
+          description: URL que o Developer Hub chama para criar o projeto. O padrão é o Service interno do cluster.
+        sonarqube_token:
+          title: Token do SonarQube
+          type: string
+          description: >
+            Token de usuário com permissão para criar projetos. No laboratório,
+            leia a chave token do Secret sonarqube-credentials no namespace prodemge.
+          ui:field: Secret
+    - title: Onde publicar os manifestos
+      required:
+        - repo
+      properties:
+        repo:
+          title: Repositório dos manifestos
+          type: object
+          description: O código da aplicação permanece no repositório de origem. Aqui fica só o catálogo e o pipeline.
+          properties:
+            host:
+              title: Host do GitLab
+              type: string
+              description: Deve coincidir com integrations.gitlab.host do Developer Hub.
+              default: gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com
+              enum:
+                - gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com
+            owner:
+              title: Grupo
+              type: string
+              default: development
+              enum:
+                - development
+
+  steps:
+    - id: fetch-catalog
+      name: Gerar a entidade do catálogo
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          component_id: ${{ parameters.component_id }}
+          title: ${{ parameters.title }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          source_url: ${{ parameters.source_url }}
+          source_revision: ${{ parameters.source_revision }}
+          stack: ${{ parameters.stack }}
+          flavor: ${{ 'desenvolvimento' if parameters.stack != 'rn-0.88.1' else '' }}
+          source_subdirectory: ${{ parameters.source_subdirectory }}
+          host: ${{ parameters.repo.host }}
+          destination: ${{ parameters.repo.owner }}/${{ parameters.component_id }}-onboarding
+          sonarqube_url: https://sonarqube-sonarqube.apps.ocp.bct9l.sandbox1479.opentlc.com
+
+    - id: fetch-pipeline
+      name: Gerar o pipeline Tekton
+      action: fetch:template
+      input:
+        url: ./pipeline
+        targetPath: ./pipeline
+        values:
+          component_id: ${{ parameters.component_id }}
+          source_url: ${{ parameters.source_url }}
+          source_revision: ${{ parameters.source_revision }}
+          stack: ${{ parameters.stack }}
+          flavor: ${{ 'desenvolvimento' if parameters.stack != 'rn-0.88.1' else '' }}
+          source_subdirectory: ${{ parameters.source_subdirectory }}
+          webhook_secret: ${{ secrets.webhook_secret }}
+
+    - id: create-sonar-project
+      name: Criar o projeto no SonarQube
+      action: sonarqube:create-project
+      input:
+        baseUrl: ${{ parameters.sonarqube_base_url }}
+        token: ${{ secrets.sonarqube_token }}
+        name: ${{ parameters.title }}
+        key: ${{ parameters.component_id }}
+        branch: ${{ parameters.source_revision }}
+        visibility: public
+
+    - id: publish
+      name: Publicar catálogo e pipeline
+      action: publish:gitlab
+      input:
+        repoUrl: "${{ parameters.repo.host }}?owner=${{ parameters.repo.owner }}&repo=${{ parameters.component_id }}-onboarding"
+        repoVisibility: public
+        skipExisting: true
+
+    - id: wait-catalog
+      name: Aguardar o GitLab publicar o catalog-info
+      action: debug:wait
+      input:
+        seconds: 15
+
+    - id: register
+      name: Registrar no Software Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+        optional: true
+
+    - id: apply-pipeline
+      name: Configurar o build no OpenShift
+      action: argocd:create-resources
+      input:
+        appName: ${{ parameters.component_id }}-pipeline
+        projectName: ${{ parameters.component_id }}-pipeline
+        argoInstance: main
+        namespace: prodemge
+        repoUrl: https://${{ parameters.repo.host }}/${{ parameters.repo.owner }}/${{ parameters.component_id }}-onboarding.git
+        path: pipeline
+        labelValue: ${{ parameters.component_id }}
+
+  output:
+    links:
+      - title: Repositório dos manifestos
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: Abrir no catálogo
+        icon: catalog
+        entityRef: component:default/${{ parameters.component_id }}
+      - title: Projeto no SonarQube
+        url: https://sonarqube-sonarqube.apps.ocp.bct9l.sandbox1479.opentlc.com/dashboard?id=${{ parameters.component_id }}
+      - title: Pipeline no OpenShift
+        url: https://console-openshift-console.apps.ocp.bct9l.sandbox1479.opentlc.com/k8s/ns/prodemge/tekton.dev~v1beta1~Pipeline/${{ parameters.component_id }}-android
+        icon: kind:pod
+      - title: Webhook de push
+        url: https://${{ parameters.component_id }}-push-prodemge.apps.ocp.bct9l.sandbox1479.opentlc.com
+        icon: kind:pod

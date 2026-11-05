@@ -1,0 +1,152 @@
+{%- set repo_id = values.source_url | replace('https://', '') | replace('http://', '') | replace('.git', '') | trim -%}
+{%- if (repo_id | last) == '/' -%}
+{%- set repo_id = repo_id | truncate((repo_id | length) - 1, true, '') -%}
+{%- endif -%}
+{%- set repo_id = repo_id | lower -%}
+{%- set branch_ref = 'refs/heads/' ~ values.source_revision -%}
+{%- set use_github = 'github.com' in values.source_url -%}
+{%- set repo_match = [
+  "(has(body.repository.clone_url) && body.repository.clone_url.lowerAscii().replace('.git', '').replace('https://', '').replace('http://', '') == '" ~ repo_id ~ "')",
+  "(has(body.repository.git_http_url) && body.repository.git_http_url.lowerAscii().replace('.git', '').replace('https://', '').replace('http://', '') == '" ~ repo_id ~ "')",
+  "(has(body.repository.url) && body.repository.url.lowerAscii().replace('.git', '').replace('https://', '').replace('http://', '') == '" ~ repo_id ~ "')",
+  "(has(body.project.git_http_url) && body.project.git_http_url.lowerAscii().replace('.git', '').replace('https://', '').replace('http://', '') == '" ~ repo_id ~ "')"
+] | join(' || ') -%}
+{%- if values.source_subdirectory -%}
+{%- set file_hit = "(f == '" ~ values.source_subdirectory ~ "' || f.startsWith('" ~ values.source_subdirectory ~ "/'))" -%}
+{%- set path_match = "has(body.commits) && body.commits.exists(c, (has(c.added) && c.added.exists(f, " ~ file_hit ~ ")) || (has(c.modified) && c.modified.exists(f, " ~ file_hit ~ ")) || (has(c.removed) && c.removed.exists(f, " ~ file_hit ~ ")))" -%}
+{%- else -%}
+{%- set path_match = "true" -%}
+{%- endif -%}
+{%- set push_filter = "body.ref == '" ~ branch_ref ~ "' && (!has(body.deleted) || body.deleted == false) && has(body.after) && body.after != '0000000000000000000000000000000000000000' && (" ~ repo_match ~ ") && (" ~ path_match ~ ")" -%}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${{ values.component_id }}-webhook
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+type: Opaque
+stringData:
+  secret: ${{ values.webhook_secret | dump }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ values.component_id }}-triggers
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["impersonate"]
+    resourceNames: ["pipeline"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ values.component_id }}-triggers
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+subjects:
+  - kind: ServiceAccount
+    name: pipeline
+    namespace: prodemge
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ values.component_id }}-triggers
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: ${{ values.component_id }}-android
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+spec:
+  params:
+    - name: git-revision
+      description: Commit recebido no push.
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: ${{ values.component_id }}-android-
+        namespace: prodemge
+        labels:
+          backstage.io/kubernetes-id: ${{ values.component_id }}
+          tekton.dev/pipeline: ${{ values.component_id }}-android
+        annotations:
+          prodemge.io/trigger: push
+          prodemge.io/react-native: ${{ values.stack | dump }}
+      spec:
+        pipelineRef:
+          name: ${{ values.component_id }}-android
+        params:
+          - name: source-url
+            value: ${{ values.source_url | dump }}
+          - name: source-revision
+            value: $(tt.params.git-revision)
+        taskRunTemplate:
+          serviceAccountName: pipeline
+        timeouts:
+          pipeline: 1h0m0s
+        workspaces:
+          - name: source
+            persistentVolumeClaim:
+              claimName: ${{ values.component_id }}-source
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: ${{ values.component_id }}-push
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+spec:
+  serviceAccountName: pipeline
+  triggers:
+    - name: ${{ 'github' if use_github else 'gitlab' }}-push
+      interceptors:
+        - ref:
+            name: ${{ 'github' if use_github else 'gitlab' }}
+            kind: ClusterInterceptor
+          params:
+            - name: secretRef
+              value:
+                secretName: ${{ values.component_id }}-webhook
+                secretKey: secret
+            - name: eventTypes
+              value:
+                - ${{ 'push' if use_github else 'Push Hook' }}
+        - ref:
+            name: cel
+            kind: ClusterInterceptor
+          params:
+            - name: filter
+              value: >-
+                ${{ push_filter }}
+      bindings:
+        - kind: ClusterTriggerBinding
+          ref: ${{ 'github-push' if use_github else 'gitlab-push' }}
+      template:
+        ref: ${{ values.component_id }}-android
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ${{ values.component_id }}-push
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+spec:
+  to:
+    kind: Service
+    name: el-${{ values.component_id }}-push
+  port:
+    targetPort: http-listener
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

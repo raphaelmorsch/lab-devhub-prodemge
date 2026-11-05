@@ -1,6 +1,6 @@
 {%- set repo_id = values.source_url | replace('https://', '') | replace('http://', '') | replace('.git', '') | trim -%}
-{%- if repo_id.endswith('/') -%}
-{%- set repo_id = repo_id[:-1] -%}
+{%- if (repo_id | last) == '/' -%}
+{%- set repo_id = repo_id | truncate((repo_id | length) - 1, true, '') -%}
 {%- endif -%}
 {%- set repo_id = repo_id | lower -%}
 {%- set branch_ref = 'refs/heads/' ~ values.source_revision -%}

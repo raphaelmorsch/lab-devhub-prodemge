@@ -1,0 +1,44 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.component_id | dump }}
+  namespace: default
+  title: ${{ values.title | dump }}
+  description: ${{ values.description | dump }}
+  annotations:
+    backstage.io/kubernetes-id: ${{ values.component_id | dump }}
+    janus-idp.io/tekton: ${{ values.component_id | dump }}
+    janus-idp.io/tekton-enabled: "true"
+    argocd/app-selector: backstage-name=${{ values.component_id }}
+    argocd/instance-name: main
+    backstage.io/source-location: url:${{ values.source_url }}
+    sonarqube.org/project-key: ${{ values.component_id | dump }}
+    {%- set source_slug = values.source_url
+      | replace('https://' ~ values.host ~ '/', '')
+      | replace('https://gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com/', '')
+      | replace('.git', '') -%}
+    {%- if values.host in values.source_url %}
+    gitlab.com/project-slug: ${{ source_slug | dump }}
+    {%- else %}
+    gitlab.com/project-slug: ${{ values.destination | dump }}
+    {%- endif %}
+    prodemge.io/react-native: ${{ values.stack | dump }}
+    {%- if values.source_subdirectory %}
+    prodemge.io/source-subdirectory: ${{ values.source_subdirectory | dump }}
+    {%- endif %}
+    {%- if values.flavor %}
+    prodemge.io/android-flavor: ${{ values.flavor | dump }}
+    {%- endif %}
+    prodemge.io/mock-store: http://app-store-mock.prodemge.svc:8080
+    prodemge.io/sonarqube: ${{ values.sonarqube_url | dump }}
+  tags:
+    - react-native
+    - android
+    - tekton
+    - gitops
+    - sonarqube
+spec:
+  type: application
+  lifecycle: production
+  owner: group:default/rhdh
+  dependsOn: ["component:default/app-store-mock"]

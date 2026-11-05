@@ -1,0 +1,88 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: ${{ values.component_id }}-static-analysis
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+spec:
+  description: Publica a análise estática do código no SonarQube. O flavor deste template é sempre desenvolvimento.
+  params:
+    - name: project-key
+      type: string
+      default: ${{ values.component_id | dump }}
+    - name: sonar-host-url
+      type: string
+      default: "http://sonarqube.sonarqube.svc.cluster.local:9000"
+  workspaces:
+    - name: source
+  steps:
+    - name: sonar-scanner
+      image: image-registry.openshift-image-registry.svc:5000/openshift/nodejs:22-ubi8
+      env:
+        - name: SONAR_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: sonarqube-credentials
+              key: token
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        SRC="$(workspaces.source.path)"
+        SUBDIR="${{ values.source_subdirectory | default('', true) }}"
+        if [ -n "${SUBDIR}" ]; then
+          if [ ! -d "${SRC}/${SUBDIR}" ]; then
+            echo "Pasta da versão não encontrada: ${SUBDIR}"
+            exit 1
+          fi
+          SRC="${SRC}/${SUBDIR}"
+        elif [ -d "${SRC}/sidsmobile-rn-0.87.1" ]; then
+          SRC="${SRC}/sidsmobile-rn-0.87.1"
+        elif [ -d "${SRC}/sidsmobile-rn-0.68.7" ]; then
+          SRC="${SRC}/sidsmobile-rn-0.68.7"
+        fi
+        TOOLS="${SRC}/.ci-tools"
+        mkdir -p "${TOOLS}/home"
+        export HOME="${TOOLS}/home"
+        export JAVA_HOME="${TOOLS}/jdk"
+        export PATH="${JAVA_HOME}/bin:${PATH}"
+        if [ ! -x "${JAVA_HOME}/bin/java" ]; then
+          echo "JDK do workspace não encontrado. A task de dependências precisa concluir antes da análise."
+          exit 1
+        fi
+        java -version
+
+        scanner="${TOOLS}/sonar-scanner/bin/sonar-scanner"
+        if [ ! -x "${scanner}" ]; then
+          arch=`uname -m`
+          case "${arch}" in
+            x86_64) scanner_arch="x64" ;;
+            aarch64) scanner_arch="aarch64" ;;
+            *) echo "Arquitetura não suportada: ${arch}"; exit 1 ;;
+          esac
+          version="6.2.1.4610"
+          curl -fsSL "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${version}-linux-${scanner_arch}.zip" -o "${TOOLS}/sonar-scanner.zip"
+          rm -rf "${TOOLS}/sonar-scanner-extract" "${TOOLS}/sonar-scanner"
+          mkdir -p "${TOOLS}/sonar-scanner-extract"
+          unzip -q "${TOOLS}/sonar-scanner.zip" -d "${TOOLS}/sonar-scanner-extract"
+          mv "${TOOLS}/sonar-scanner-extract"/sonar-scanner-* "${TOOLS}/sonar-scanner"
+          chmod -R a+rX "${TOOLS}/sonar-scanner"
+        fi
+
+        if [ -z "${SONAR_TOKEN}" ]; then
+          echo "SONAR_TOKEN vazio. Confira o Secret sonarqube-credentials no namespace prodemge."
+          exit 1
+        fi
+
+        cd "${SRC}"
+        "${scanner}" \
+          -Dsonar.projectKey="$(params.project-key)" \
+          -Dsonar.projectName="$(params.project-key)" \
+          -Dsonar.sources=. \
+          -Dsonar.host.url="$(params.sonar-host-url)" \
+          -Dsonar.token="${SONAR_TOKEN}" \
+          -Dsonar.scm.disabled=true \
+          -Dsonar.qualitygate.wait=false \
+          -Dsonar.working.directory="${TOOLS}/scannerwork" \
+          -Dsonar.exclusions="**/node_modules/**,**/.ci-tools/**,**/android/**,**/ios/**,**/.git/**"
+        echo "Análise publicada no projeto $(params.project-key)."

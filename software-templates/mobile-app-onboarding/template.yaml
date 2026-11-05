@@ -83,10 +83,10 @@ spec:
           title: Segredo do webhook
           type: string
           description: >
-            Token compartilhado com o webhook de push do Git. O EventListener
-            recusa chamadas sem esse segredo. Ele fica no Secret do namespace
-            e também no repositório de manifestos.
-          ui:widget: password
+            Token que você escolhe e repete no webhook de push do Git. O
+            EventListener só aceita o push se o valor coincidir. Ele vai para
+            o Secret do namespace e também para o manifesto publicado.
+          ui:field: Secret
     - title: Onde publicar os manifestos
       required:
         - repo
@@ -142,7 +142,7 @@ spec:
           stack: ${{ parameters.stack }}
           flavor: ${{ parameters.flavor }}
           source_subdirectory: ${{ parameters.source_subdirectory }}
-          webhook_secret: ${{ parameters.webhook_secret }}
+          webhook_secret: ${{ secrets.webhook_secret }}
 
     - id: publish
       name: Publicar catálogo e pipeline

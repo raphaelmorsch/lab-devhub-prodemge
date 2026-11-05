@@ -1,6 +1,6 @@
 {%- set repo_web = values.source_url | replace('.git', '') | trim -%}
-{%- if repo_web.endswith('/') -%}
-{%- set repo_web = repo_web[:-1] -%}
+{%- if (repo_web | last) == '/' -%}
+{%- set repo_web = repo_web | truncate((repo_web | length) - 1, true, '') -%}
 {%- endif -%}
 {%- if values.source_subdirectory -%}
 {%- if 'github.com' in repo_web -%}
