@@ -1,0 +1,95 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: fetch-ios-ipa
+  namespace: prodemge
+  labels:
+    app.kubernetes.io/part-of: prodemge-ios
+spec:
+  description: Baixa os artefatos do job ios-build e deixa o IPA no workspace. Falha se o Mac não tiver produzido um IPA.
+  params:
+    - name: gitlab-url
+      type: string
+      default: "https://gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com"
+    - name: project-id
+      type: string
+    - name: pipeline-id
+      type: string
+    - name: secret-name
+      type: string
+      default: gitlab-ios-build
+  workspaces:
+    - name: source
+  results:
+    - name: ipa-path
+      description: Caminho do IPA dentro do workspace.
+  steps:
+    - name: fetch
+      image: image-registry.openshift-image-registry.svc:5000/openshift/nodejs:22-ubi8
+      env:
+        - name: GITLAB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: $(params.secret-name)
+              key: token
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        if [ -z "${GITLAB_TOKEN}" ]; then
+          echo "Token do GitLab ausente no Secret $(params.secret-name)."
+          exit 1
+        fi
+        base="$(params.gitlab-url)"
+        base="${base%/}"
+        project="$(params.project-id)"
+        pipeline="$(params.pipeline-id)"
+        dest="$(workspaces.source.path)/ipa"
+        rm -rf "${dest}"
+        mkdir -p "${dest}"
+        jobs="${base}/api/v4/projects/${project}/pipelines/${pipeline}/jobs"
+        tmp="$(mktemp)"
+        status="$(curl -sS --max-time 60 -o "${tmp}" -w "%{http_code}" \
+          -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+          "${jobs}" || true)"
+        if [ "${status}" != "200" ]; then
+          echo "Não foi possível listar os jobs do pipeline ${pipeline}. HTTP ${status}."
+          rm -f "${tmp}"
+          exit 1
+        fi
+        job_id="$(node -e '
+          const fs = require("fs");
+          const jobs = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          const match = jobs.find((job) => job.name === "ios-build");
+          if (!match) process.exit(2);
+          process.stdout.write(String(match.id));
+        ' "${tmp}")" || {
+          echo "O pipeline ${pipeline} não tem job ios-build."
+          rm -f "${tmp}"
+          exit 1
+        }
+        rm -f "${tmp}"
+        echo "Job ios-build ${job_id}."
+
+        archive="${dest}/artifacts.zip"
+        status="$(curl -sS --max-time 180 -o "${archive}" -w "%{http_code}" \
+          -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+          "${base}/api/v4/projects/${project}/jobs/${job_id}/artifacts" || true)"
+        if [ "${status}" != "200" ]; then
+          echo "Download dos artefatos falhou. HTTP ${status}."
+          exit 1
+        fi
+        unzip -q "${archive}" -d "${dest}/unpacked"
+        rm -f "${archive}"
+
+        ipa="$(find "${dest}/unpacked" -type f -name '*.ipa' -print | head -n 1)"
+        if [ -z "${ipa}" ]; then
+          echo "O job ${job_id} não entregou um IPA."
+          status_file="$(find "${dest}/unpacked" -type f -name 'signing-status.txt' -print | head -n 1)"
+          if [ -n "${status_file}" ]; then
+            cat "${status_file}"
+          fi
+          exit 1
+        fi
+        cp "${ipa}" "${dest}/app.ipa"
+        printf '%s' "${dest}/app.ipa" > "$(results.ipa-path.path)"
+        echo "IPA em ${dest}/app.ipa"

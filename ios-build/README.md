@@ -30,9 +30,15 @@ Reiniciar o serviço:
 
 Os logs ficam em `~/gitlab-runner/logs/gitlab-runner.out.log` e `~/gitlab-runner/logs/gitlab-runner.err.log`. O LaunchAgent é `~/Library/LaunchAgents/gitlab-runner.plist`.
 
+## Pipeline Tekton
+
+O Pipeline `ios-build-remote`, no namespace `prodemge`, executa nesta ordem: `clone`, `static-analysis`, `request-build`, `wait`, `fetch-ipa` e `publish`. O clone e o SonarQube rodam no OpenShift. O `request-build` pede o job ao GitLab, e o `wait` segura a esteira até esse job terminar. O `fetch-ipa` baixa o IPA dos artefatos. O `publish` envia esse arquivo à App Store Mock.
+
+Os PipelineRuns anteriores a essa alteração só têm `trigger` e `wait`. A visualização nova está no Pipeline, e numa execução criada depois da alteração.
+
 ## Build
 
-O job `ios-build` só entra na esteira quando o Tekton envia `RUN_IOS=true`. Ele clona `SOURCE_URL` no `SOURCE_SHA`, instala npm e CocoaPods, descobre o workspace e o scheme do projeto e compila para o simulador. Em seguida tenta o archive de device.
+O job `ios-build` só entra na esteira quando o Tekton envia `RUN_IOS=true`. Ele clona `SOURCE_URL` no `SOURCE_SHA`, instala npm e CocoaPods, descobre o workspace e o scheme do projeto e compila para o simulador. Em seguida tenta o archive de device. Quando existe um IPA, `ci/collect-ipa.sh` copia o arquivo para `output/app.ipa`, que vai nos artefatos do job.
 
 Sem certificado Apple e sem provisioning profile, o archive para com `IPA_STATUS=blocked-signing`. Esse resultado não é um IPA.
 

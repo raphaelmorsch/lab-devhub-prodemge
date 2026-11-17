@@ -6,44 +6,92 @@ metadata:
   labels:
     app.kubernetes.io/part-of: prodemge-ios
 spec:
-  description: Dispara o build iOS no GitLab e aguarda o resultado. A compilação nativa acontece no runner macOS.
+  description: Clona a aplicação, publica a análise no SonarQube, pede o build ao Mac, baixa o IPA e publica na App Store Mock.
   params:
     - name: project-id
       type: string
+      default: "16"
     - name: git-ref
       type: string
+      default: main
+      description: Branch, tag ou SHA do projeto development/ios-build. Não é o commit da aplicação.
     - name: react-native-version
       type: string
       default: rn-0.87.1
     - name: source-url
       type: string
-      default: ""
     - name: source-subdirectory
       type: string
       default: ""
     - name: source-revision
       type: string
-      default: ""
+      description: Commit da aplicação que o clone e o Mac devem usar.
     - name: run-ios
       type: string
-      default: "false"
-    - name: build-request-id
-      type: string
+      default: "true"
     - name: poll-interval
       type: string
       default: "15"
     - name: timeout
       type: string
       default: "7200"
+    - name: sonar-host-url
+      type: string
+      default: "http://sonarqube.sonarqube.svc.cluster.local:9000"
+    - name: sonar-project-key
+      type: string
+    - name: app-id
+      type: string
+    - name: mock-store-url
+      type: string
+      default: "http://app-store-mock.prodemge.svc:8080"
+    - name: enable-publish
+      type: string
+      default: "true"
+  workspaces:
+    - name: source
   results:
     - name: gitlab-pipeline-id
-      value: $(tasks.trigger.results.gitlab-pipeline-id)
+      value: $(tasks.request-build.results.gitlab-pipeline-id)
     - name: gitlab-pipeline-url
       value: $(tasks.wait.results.gitlab-pipeline-url)
     - name: git-sha
       value: $(tasks.wait.results.git-sha)
   tasks:
-    - name: trigger
+    - name: clone
+      taskRef:
+        kind: ClusterTask
+        name: git-clone
+      params:
+        - name: url
+          value: $(params.source-url)
+        - name: revision
+          value: $(params.source-revision)
+        - name: deleteExisting
+          value: "true"
+        - name: depth
+          value: "0"
+      workspaces:
+        - name: output
+          workspace: source
+    - name: static-analysis
+      runAfter:
+        - clone
+      taskRef:
+        name: ios-static-analysis
+      params:
+        - name: project-key
+          value: $(params.sonar-project-key)
+        - name: sonar-host-url
+          value: $(params.sonar-host-url)
+        - name: source-subdirectory
+          value: $(params.source-subdirectory)
+      workspaces:
+        - name: source
+          workspace: source
+    - name: request-build
+      runAfter:
+        - static-analysis
       taskRef:
         name: trigger-ios-build
       params:
@@ -62,20 +110,53 @@ spec:
         - name: run-ios
           value: $(params.run-ios)
         - name: build-request-id
-          value: $(params.build-request-id)
+          value: $(context.pipelineRun.name)
     - name: wait
       runAfter:
-        - trigger
+        - request-build
       taskRef:
         name: wait-ios-build
       params:
         - name: project-id
           value: $(params.project-id)
         - name: pipeline-id
-          value: $(tasks.trigger.results.gitlab-pipeline-id)
+          value: $(tasks.request-build.results.gitlab-pipeline-id)
         - name: expected-sha
-          value: $(tasks.trigger.results.git-sha)
+          value: $(tasks.request-build.results.git-sha)
         - name: poll-interval
           value: $(params.poll-interval)
         - name: timeout
           value: $(params.timeout)
+    - name: fetch-ipa
+      runAfter:
+        - wait
+      taskRef:
+        name: fetch-ios-ipa
+      params:
+        - name: project-id
+          value: $(params.project-id)
+        - name: pipeline-id
+          value: $(tasks.request-build.results.gitlab-pipeline-id)
+      workspaces:
+        - name: source
+          workspace: source
+    - name: publish
+      runAfter:
+        - fetch-ipa
+      when:
+        - input: "$(params.enable-publish)"
+          operator: in
+          values:
+            - "true"
+      taskRef:
+        name: publish-ios-ipa
+      params:
+        - name: mock-store-url
+          value: $(params.mock-store-url)
+        - name: app-id
+          value: $(params.app-id)
+        - name: react-native-version
+          value: $(params.react-native-version)
+      workspaces:
+        - name: source
+          workspace: source

@@ -1,0 +1,97 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: ios-static-analysis
+  namespace: prodemge
+  labels:
+    app.kubernetes.io/part-of: prodemge-ios
+spec:
+  description: Publica a análise estática do código clonado no SonarQube, antes do pedido de build ao Mac.
+  params:
+    - name: project-key
+      type: string
+    - name: sonar-host-url
+      type: string
+      default: "http://sonarqube.sonarqube.svc.cluster.local:9000"
+    - name: source-subdirectory
+      type: string
+      default: ""
+  workspaces:
+    - name: source
+  steps:
+    - name: sonar-scanner
+      image: image-registry.openshift-image-registry.svc:5000/openshift/nodejs:22-ubi8
+      env:
+        - name: SONAR_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: sonarqube-credentials
+              key: token
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        SRC="$(workspaces.source.path)"
+        SUBDIR="$(params.source-subdirectory)"
+        if [ -n "${SUBDIR}" ]; then
+          if [ ! -d "${SRC}/${SUBDIR}" ]; then
+            echo "Pasta da versão não encontrada: ${SUBDIR}"
+            exit 1
+          fi
+          SRC="${SRC}/${SUBDIR}"
+        elif [ -d "${SRC}/sidsmobile-rn-0.87.1" ]; then
+          SRC="${SRC}/sidsmobile-rn-0.87.1"
+        elif [ -d "${SRC}/sidsmobile-rn-0.68.7" ]; then
+          SRC="${SRC}/sidsmobile-rn-0.68.7"
+        fi
+        TOOLS="$(workspaces.source.path)/.ci-tools"
+        umask 000
+        mkdir -p "${TOOLS}/home"
+        export HOME="${TOOLS}/home"
+
+        arch="$(uname -m)"
+        case "${arch}" in
+          x86_64) jdk_arch="x64"; scanner_arch="x64" ;;
+          aarch64) jdk_arch="aarch64"; scanner_arch="aarch64" ;;
+          *) echo "Arquitetura não suportada: ${arch}"; exit 1 ;;
+        esac
+
+        if [ ! -x "${TOOLS}/jdk/bin/java" ]; then
+          curl -fsSL "https://api.adoptium.net/v3/binary/latest/17/ga/linux/${jdk_arch}/jdk/hotspot/normal/eclipse?project=jdk" -o "${TOOLS}/jdk.tgz"
+          mkdir -p "${TOOLS}/jdk-extract"
+          tar -xzf "${TOOLS}/jdk.tgz" -C "${TOOLS}/jdk-extract"
+          mv "${TOOLS}/jdk-extract"/jdk-17* "${TOOLS}/jdk"
+          rm -rf "${TOOLS}/jdk-extract" "${TOOLS}/jdk.tgz"
+        fi
+        export JAVA_HOME="${TOOLS}/jdk"
+        export PATH="${JAVA_HOME}/bin:${PATH}"
+        java -version
+
+        scanner="${TOOLS}/sonar-scanner/bin/sonar-scanner"
+        if [ ! -x "${scanner}" ]; then
+          version="6.2.1.4610"
+          curl -fsSL "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${version}-linux-${scanner_arch}.zip" -o "${TOOLS}/sonar-scanner.zip"
+          rm -rf "${TOOLS}/sonar-scanner-extract" "${TOOLS}/sonar-scanner"
+          mkdir -p "${TOOLS}/sonar-scanner-extract"
+          unzip -q "${TOOLS}/sonar-scanner.zip" -d "${TOOLS}/sonar-scanner-extract"
+          mv "${TOOLS}/sonar-scanner-extract"/sonar-scanner-* "${TOOLS}/sonar-scanner"
+          chmod -R a+rX "${TOOLS}/sonar-scanner"
+          rm -rf "${TOOLS}/sonar-scanner-extract" "${TOOLS}/sonar-scanner.zip"
+        fi
+
+        if [ -z "${SONAR_TOKEN}" ]; then
+          echo "SONAR_TOKEN vazio. Confira o Secret sonarqube-credentials no namespace prodemge."
+          exit 1
+        fi
+
+        cd "${SRC}"
+        "${scanner}" \
+          -Dsonar.projectKey="$(params.project-key)" \
+          -Dsonar.projectName="$(params.project-key)" \
+          -Dsonar.sources=. \
+          -Dsonar.host.url="$(params.sonar-host-url)" \
+          -Dsonar.token="${SONAR_TOKEN}" \
+          -Dsonar.scm.disabled=true \
+          -Dsonar.qualitygate.wait=false \
+          -Dsonar.working.directory="${TOOLS}/scannerwork" \
+          -Dsonar.exclusions="**/node_modules/**,**/.ci-tools/**,**/android/**,**/ios/**,**/.git/**"
+        echo "Análise publicada no projeto $(params.project-key)."

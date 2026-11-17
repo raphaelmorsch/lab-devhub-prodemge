@@ -38,6 +38,8 @@ ios-build:
     - if: '$RUN_IOS == "true"'
   script:
     - set -eu
+    - mkdir -p output
+    - printf 'IPA_STATUS=pending\n' > output/signing-status.txt
     - echo "PIPELINE_ID=${CI_PIPELINE_ID}"
     - echo "BUILD_REQUEST_ID=${BUILD_REQUEST_ID:-none}"
     - echo "RN_VERSION=${RN_VERSION:-}"
@@ -49,10 +51,12 @@ ios-build:
     - bash ci/discover-xcode.sh
     - bash ci/build-simulator.sh
     - bash ci/archive-device.sh
+    - bash ci/collect-ipa.sh
   artifacts:
     when: always
     paths:
       - simulator-status.txt
       - signing-status.txt
       - archive.log
+      - output/
     expire_in: 7 days

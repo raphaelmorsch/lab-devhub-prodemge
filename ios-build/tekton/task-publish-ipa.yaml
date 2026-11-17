@@ -1,0 +1,76 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: publish-ios-ipa
+  namespace: prodemge
+  labels:
+    app.kubernetes.io/part-of: prodemge-ios
+spec:
+  description: Publica o IPA baixado do Mac na App Store Mock. O campo apk das publicações Android permanece separado.
+  params:
+    - name: mock-store-url
+      type: string
+      default: "http://app-store-mock.prodemge.svc:8080"
+    - name: app-id
+      type: string
+    - name: react-native-version
+      type: string
+      default: "rn-0.87.1"
+    - name: secret-name
+      type: string
+      default: app-store-ipa-publish
+  workspaces:
+    - name: source
+  steps:
+    - name: publish
+      image: image-registry.openshift-image-registry.svc:5000/openshift/nodejs:22-ubi8
+      env:
+        - name: PUBLISH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: $(params.secret-name)
+              key: token
+        - name: PIPELINE_RUN
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['tekton.dev/pipelineRun']
+        - name: TASK_RUN
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['tekton.dev/taskRun']
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        if [ -z "${PUBLISH_TOKEN}" ]; then
+          echo "Token de publicação ausente no Secret $(params.secret-name)."
+          exit 1
+        fi
+        ipa="$(workspaces.source.path)/ipa/app.ipa"
+        if [ ! -f "${ipa}" ]; then
+          echo "IPA não encontrado em ${ipa}."
+          exit 1
+        fi
+        store="$(params.mock-store-url)"
+        store="${store%/}"
+        app_id="$(params.app-id)"
+        endpoint="${store}/api/apps/${app_id}/releases"
+        echo "Publicando ${ipa} em ${endpoint}"
+        response="$(curl -sS --max-time 180 -w "\n%{http_code}" -X POST \
+          -H "Authorization: Bearer ${PUBLISH_TOKEN}" \
+          -F "ipa=@${ipa};type=application/octet-stream" \
+          -F "platform=ios" \
+          -F "reactNativeVersion=$(params.react-native-version)" \
+          -F "pipelineRun=${PIPELINE_RUN:-}" \
+          -F "taskRun=${TASK_RUN:-}" \
+          -F "buildResult=success" \
+          "${endpoint}")"
+        http="$(printf '%s' "${response}" | tail -n 1)"
+        body="$(printf '%s' "${response}" | sed '$d')"
+        if [ "${http}" != "201" ]; then
+          echo "A App Store Mock recusou a publicação. HTTP ${http}."
+          printf '%s\n' "${body}" | head -c 500
+          echo
+          exit 1
+        fi
+        printf '%s\n' "${body}"
+        echo "Publicação concluída."
