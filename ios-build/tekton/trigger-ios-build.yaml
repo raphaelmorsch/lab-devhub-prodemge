@@ -1,0 +1,112 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: trigger-ios-build
+  namespace: prodemge
+  labels:
+    app.kubernetes.io/part-of: prodemge-ios
+spec:
+  description: Dispara o pipeline GitLab do build iOS e devolve o identificador criado para esta execução.
+  params:
+    - name: gitlab-url
+      type: string
+      default: "https://gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com"
+    - name: project-id
+      type: string
+    - name: git-ref
+      type: string
+      description: Branch, tag ou SHA. A API cria o pipeline exatamente nessa revisão.
+    - name: react-native-version
+      type: string
+      default: "rn-0.87.1"
+    - name: source-url
+      type: string
+      default: ""
+    - name: source-subdirectory
+      type: string
+      default: ""
+    - name: source-revision
+      type: string
+      default: ""
+      description: SHA da aplicação que o runner deve compilar. É diferente da revisão do projeto de CI.
+    - name: run-ios
+      type: string
+      default: "false"
+    - name: build-request-id
+      type: string
+      description: Identificador único desta execução. Evita confundir pipelines disparados em paralelo.
+    - name: secret-name
+      type: string
+      default: gitlab-ios-build
+  results:
+    - name: gitlab-pipeline-id
+      description: Identificador do pipeline GitLab criado por esta Task.
+    - name: gitlab-pipeline-url
+      description: URL do pipeline GitLab.
+    - name: git-sha
+      description: SHA que o GitLab associou ao pipeline criado.
+  steps:
+    - name: trigger
+      image: image-registry.openshift-image-registry.svc:5000/openshift/nodejs:22-ubi8
+      env:
+        - name: GITLAB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: $(params.secret-name)
+              key: token
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        if [ -z "${GITLAB_TOKEN}" ]; then
+          echo "Token do GitLab ausente no Secret $(params.secret-name)."
+          exit 1
+        fi
+        base="$(params.gitlab-url)"
+        base="${base%/}"
+        project="$(params.project-id)"
+        ref="$(params.git-ref)"
+        request_id="$(params.build-request-id)"
+        payload="$(node -e '
+          const payload = {
+            ref: process.argv[1],
+            variables: [
+              {key: "BUILD_REQUEST_ID", value: process.argv[2]},
+              {key: "RN_VERSION", value: process.argv[3]},
+              {key: "SOURCE_URL", value: process.argv[4]},
+              {key: "SOURCE_SUBDIRECTORY", value: process.argv[5]},
+              {key: "SOURCE_SHA", value: process.argv[6]},
+              {key: "RUN_IOS", value: process.argv[7]}
+            ]
+          };
+          process.stdout.write(JSON.stringify(payload));
+        ' "$(params.git-ref)" "${request_id}" "$(params.react-native-version)" "$(params.source-url)" "$(params.source-subdirectory)" "$(params.source-revision)" "$(params.run-ios)")"
+
+        tmp="$(mktemp)"
+        status="$(curl -sS --max-time 60 -o "${tmp}" -w "%{http_code}" \
+          -X POST \
+          -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+          -H "Content-Type: application/json" \
+          --data "${payload}" \
+          "${base}/api/v4/projects/${project}/pipeline" || true)"
+        if [ "${status}" != "201" ]; then
+          echo "Falha ao disparar o pipeline GitLab. HTTP ${status}."
+          rm -f "${tmp}"
+          exit 1
+        fi
+        node -e '
+          const fs = require("fs");
+          const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          if (!data.id || !data.sha || !data.web_url) {
+            console.error("Resposta do GitLab sem id, sha ou web_url.");
+            process.exit(2);
+          }
+          fs.writeFileSync(process.argv[2], String(data.id));
+          fs.writeFileSync(process.argv[3], String(data.web_url));
+          fs.writeFileSync(process.argv[4], String(data.sha));
+          console.log("Pipeline GitLab " + data.id + " criado para " + data.sha);
+          console.log(data.web_url);
+        ' "${tmp}" \
+          "$(results.gitlab-pipeline-id.path)" \
+          "$(results.gitlab-pipeline-url.path)" \
+          "$(results.git-sha.path)"
+        rm -f "${tmp}"

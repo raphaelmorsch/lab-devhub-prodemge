@@ -1,0 +1,133 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: wait-ios-build
+  namespace: prodemge
+  labels:
+    app.kubernetes.io/part-of: prodemge-ios
+spec:
+  description: Aguarda o pipeline GitLab informado e só termina com sucesso quando ele conclui com sucesso.
+  params:
+    - name: gitlab-url
+      type: string
+      default: "https://gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com"
+    - name: project-id
+      type: string
+    - name: pipeline-id
+      type: string
+    - name: expected-sha
+      type: string
+      default: ""
+      description: Quando informado, a Task falha se o pipeline acompanhado não for exatamente esse commit.
+    - name: poll-interval
+      type: string
+      default: "15"
+      description: Intervalo entre consultas, em segundos.
+    - name: timeout
+      type: string
+      default: "1800"
+      description: Tempo máximo de espera, em segundos.
+    - name: secret-name
+      type: string
+      default: gitlab-ios-build
+  results:
+    - name: status
+      description: Estado terminal do pipeline GitLab.
+    - name: gitlab-pipeline-url
+      description: URL do pipeline GitLab.
+    - name: git-sha
+      description: SHA confirmado na consulta do pipeline.
+    - name: artifact-reference
+      description: Referência ao artefato, quando o pipeline já tiver produzido uma.
+  steps:
+    - name: wait
+      image: image-registry.openshift-image-registry.svc:5000/openshift/nodejs:22-ubi8
+      env:
+        - name: GITLAB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: $(params.secret-name)
+              key: token
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        if [ -z "${GITLAB_TOKEN}" ]; then
+          echo "Token do GitLab ausente no Secret $(params.secret-name)."
+          exit 1
+        fi
+        base="$(params.gitlab-url)"
+        base="${base%/}"
+        project="$(params.project-id)"
+        pipeline="$(params.pipeline-id)"
+        expected="$(params.expected-sha)"
+        interval="$(params.poll-interval)"
+        timeout="$(params.timeout)"
+        deadline="$((SECONDS + timeout))"
+        url="${base}/api/v4/projects/${project}/pipelines/${pipeline}"
+        echo "Aguardando pipeline ${pipeline}."
+
+        while true; do
+          if [ "${SECONDS}" -ge "${deadline}" ]; then
+            echo "Tempo esgotado depois de ${timeout}s."
+            exit 1
+          fi
+          tmp="$(mktemp)"
+          status="$(curl -sS --max-time 60 -o "${tmp}" -w "%{http_code}" \
+            -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+            "${url}" || true)"
+          case "${status}" in
+            200)
+              ;;
+            429|500|502|503|504)
+              echo "Consulta retornou HTTP ${status}. Nova tentativa em ${interval}s."
+              rm -f "${tmp}"
+              sleep "${interval}"
+              continue
+              ;;
+            *)
+              echo "Consulta do pipeline falhou. HTTP ${status}."
+              rm -f "${tmp}"
+              exit 1
+              ;;
+          esac
+          read -r state sha web artifact <<EOF
+        $(node -e '
+          const fs = require("fs");
+          const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          const state = data.status || "";
+          const sha = data.sha || "";
+          const web = data.web_url || "";
+          process.stdout.write([state, sha, web, ""].join(" "));
+        ' "${tmp}")
+        EOF
+          rm -f "${tmp}"
+          echo "Estado ${state}."
+          case "${state}" in
+            success|failed|canceled|canceling|skipped)
+              if [ -n "${expected}" ] && [ "${sha}" != "${expected}" ]; then
+                echo "O pipeline ${pipeline} pertence ao commit ${sha}, diferente de ${expected}."
+                exit 1
+              fi
+              printf '%s' "${state}" > "$(results.status.path)"
+              printf '%s' "${web}" > "$(results.gitlab-pipeline-url.path)"
+              printf '%s' "${sha}" > "$(results.git-sha.path)"
+              printf '%s' "${artifact}" > "$(results.artifact-reference.path)"
+              if [ -n "${web}" ]; then
+                echo "Pipeline: ${web}"
+              fi
+              if [ "${state}" != "success" ]; then
+                echo "Pipeline GitLab terminou com estado ${state}."
+                exit 1
+              fi
+              echo "Pipeline GitLab concluído com sucesso."
+              exit 0
+              ;;
+            created|waiting_for_resource|preparing|pending|running|scheduled|manual)
+              sleep "${interval}"
+              ;;
+            *)
+              echo "Estado desconhecido: ${state}."
+              exit 1
+              ;;
+          esac
+        done

@@ -1,0 +1,58 @@
+# Pipeline do executor macOS do laboratório.
+# O projeto development/ios-build é o único autorizado a usar o runner.
+# Jobs sem as três tags não são aceitos: run_untagged está desligado.
+
+stages:
+  - verify
+  - build
+
+macos-shell:
+  stage: verify
+  tags:
+    - macos
+    - apple-silicon
+    - ios-build
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $RUN_IOS != "true"'
+  script:
+    - set -eu
+    - sw_vers
+    - uname -m
+    - whoami
+    - id -u
+    - echo "PIPELINE_ID=${CI_PIPELINE_ID}"
+    - echo "COMMIT_SHA=${CI_COMMIT_SHA}"
+    - echo "BUILD_REQUEST_ID=${BUILD_REQUEST_ID:-none}"
+    - echo "PRODEMGE_IOS_RUNNER_OK"
+  after_script:
+    - rm -rf "${CI_PROJECT_DIR}/tmp" || true
+
+ios-build:
+  stage: build
+  tags:
+    - macos
+    - apple-silicon
+    - ios-build
+  timeout: 2h
+  rules:
+    - if: '$RUN_IOS == "true"'
+  script:
+    - set -eu
+    - echo "PIPELINE_ID=${CI_PIPELINE_ID}"
+    - echo "BUILD_REQUEST_ID=${BUILD_REQUEST_ID:-none}"
+    - echo "RN_VERSION=${RN_VERSION:-}"
+    - echo "SOURCE_URL=${SOURCE_URL:-}"
+    - echo "SOURCE_SHA=${SOURCE_SHA:-}"
+    - bash ci/checkout-source.sh
+    - bash ci/prepare-node.sh
+    - bash ci/prepare-pods.sh
+    - bash ci/discover-xcode.sh
+    - bash ci/build-simulator.sh
+    - bash ci/archive-device.sh
+  artifacts:
+    when: always
+    paths:
+      - simulator-status.txt
+      - signing-status.txt
+      - archive.log
+    expire_in: 7 days

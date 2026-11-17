@@ -1,0 +1,81 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: ios-build-remote
+  namespace: prodemge
+  labels:
+    app.kubernetes.io/part-of: prodemge-ios
+spec:
+  description: Dispara o build iOS no GitLab e aguarda o resultado. A compilação nativa acontece no runner macOS.
+  params:
+    - name: project-id
+      type: string
+    - name: git-ref
+      type: string
+    - name: react-native-version
+      type: string
+      default: rn-0.87.1
+    - name: source-url
+      type: string
+      default: ""
+    - name: source-subdirectory
+      type: string
+      default: ""
+    - name: source-revision
+      type: string
+      default: ""
+    - name: run-ios
+      type: string
+      default: "false"
+    - name: build-request-id
+      type: string
+    - name: poll-interval
+      type: string
+      default: "15"
+    - name: timeout
+      type: string
+      default: "7200"
+  results:
+    - name: gitlab-pipeline-id
+      value: $(tasks.trigger.results.gitlab-pipeline-id)
+    - name: gitlab-pipeline-url
+      value: $(tasks.wait.results.gitlab-pipeline-url)
+    - name: git-sha
+      value: $(tasks.wait.results.git-sha)
+  tasks:
+    - name: trigger
+      taskRef:
+        name: trigger-ios-build
+      params:
+        - name: project-id
+          value: $(params.project-id)
+        - name: git-ref
+          value: $(params.git-ref)
+        - name: react-native-version
+          value: $(params.react-native-version)
+        - name: source-url
+          value: $(params.source-url)
+        - name: source-subdirectory
+          value: $(params.source-subdirectory)
+        - name: source-revision
+          value: $(params.source-revision)
+        - name: run-ios
+          value: $(params.run-ios)
+        - name: build-request-id
+          value: $(params.build-request-id)
+    - name: wait
+      runAfter:
+        - trigger
+      taskRef:
+        name: wait-ios-build
+      params:
+        - name: project-id
+          value: $(params.project-id)
+        - name: pipeline-id
+          value: $(tasks.trigger.results.gitlab-pipeline-id)
+        - name: expected-sha
+          value: $(tasks.trigger.results.git-sha)
+        - name: poll-interval
+          value: $(params.poll-interval)
+        - name: timeout
+          value: $(params.timeout)
