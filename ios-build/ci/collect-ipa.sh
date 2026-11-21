@@ -11,9 +11,14 @@ if [ -f "${CI_PROJECT_DIR}/signing-status.txt" ]; then
 fi
 
 found=""
-if [ -d "${CI_PROJECT_DIR}/source" ]; then
-  found="$(find "${CI_PROJECT_DIR}/source" -type f -name '*.ipa' -print | head -n 1)"
-fi
+for folder in "${CI_PROJECT_DIR}/exported" "${CI_PROJECT_DIR}/source"; do
+  if [ -d "${folder}" ]; then
+    found="$(find "${folder}" -type f -name '*.ipa' -print | head -n 1)"
+    if [ -n "${found}" ]; then
+      break
+    fi
+  fi
+done
 if [ -n "${found}" ]; then
   cp "${found}" "${output}/app.ipa"
   echo "IPA_FILE=${output}/app.ipa"

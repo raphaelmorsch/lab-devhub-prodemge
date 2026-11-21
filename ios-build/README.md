@@ -38,7 +38,7 @@ Os PipelineRuns anteriores a essa alteração só têm `trigger` e `wait`. A vis
 
 ## Build
 
-O job `ios-build` só entra na esteira quando o Tekton envia `RUN_IOS=true`. Ele clona `SOURCE_URL` no `SOURCE_SHA`, instala npm e CocoaPods, descobre o workspace e o scheme do projeto e compila para o simulador. Em seguida tenta o archive de device. Quando existe um IPA, `ci/collect-ipa.sh` copia o arquivo para `output/app.ipa`, que vai nos artefatos do job.
+O job `ios-build` só entra na esteira quando o Tekton envia `RUN_IOS=true`. Ele clona `SOURCE_URL` no `SOURCE_SHA`, instala npm e CocoaPods, descobre o workspace e o scheme do projeto e compila para o simulador. Em seguida faz o archive de device. Se o Mac tiver um provisioning profile para o bundle, o archive usa esse time e exporta um IPA de depuração para `exported/`. O `ci/collect-ipa.sh` copia o arquivo para `output/app.ipa`, que vai nos artefatos do job.
 
 Sem certificado Apple e sem provisioning profile, o archive para com `IPA_STATUS=blocked-signing`. Esse resultado não é um IPA.
 

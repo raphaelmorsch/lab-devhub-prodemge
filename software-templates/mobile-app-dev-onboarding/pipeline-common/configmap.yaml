@@ -30,6 +30,7 @@ data:
   source-revision: ${{ values.source_revision | dump }}
   source-subdirectory: ${{ values.source_subdirectory | default('', true) | dump }}
   stack: ${{ values.stack | dump }}
+  platform: ${{ values.platform | default('android') | dump }}
   flavor: ${{ publish_flavor | dump }}
   gradle-task: ${{ gradle_task | dump }}
   node-version: ${{ node_version | dump }}

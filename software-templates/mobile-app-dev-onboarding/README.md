@@ -4,14 +4,16 @@ Software Template do laboratório. Ele não cria o código da aplicação. A par
 
 - cria o projeto no SonarQube com a action `sonarqube:create-project`
 - publica uma entidade no Software Catalog, com a anotação `sonarqube.org/project-key`
-- gera o pipeline Tekton `${component_id}-android` no namespace `prodemge`
+- gera o pipeline Tekton da plataforma escolhida no namespace `prodemge`. Android continua `${component_id}-android`. iOS gera `${component_id}-ios`
 - grava a configuração do build e a URL da App Store Mock
 
-O flavor é sempre `desenvolvimento`. O pipeline executa Clone, Dependencies, Static Analysis, Build e Publish. Não há task de assinatura da APK: o `assembleDesenvolvimentoRelease` usa a keystore já declarada no Gradle da aplicação. A análise estática roda o SonarScanner e publica o resultado no projeto criado pelo template. O quality gate não interrompe a esteira. O Publish envia o APK para `http://app-store-mock.prodemge.svc:8080` (`enable-publish=true` por padrão). A UI pública fica na Route `app-store-mock` do namespace `prodemge`.
+No Android, o flavor é `desenvolvimento`, exceto na pilha 0.88.1, que gera `assembleRelease`. Não há task de assinatura da APK: o Gradle da aplicação usa a keystore já declarada. A análise estática roda o SonarScanner e publica o resultado no projeto criado pelo template. O quality gate não interrompe a esteira. O Publish do Android envia o APK para `http://app-store-mock.prodemge.svc:8080` (`enable-publish=true` por padrão). A UI pública fica na Route `app-store-mock` do namespace `prodemge`.
 
 O Scanner usa o token da chave `token` do Secret `sonarqube-credentials`, no namespace `prodemge`. O formulário pede o mesmo token para a action de criação do projeto. A URL interna padrão é `http://sonarqube.sonarqube.svc.cluster.local:9000`. O painel fica em `https://sonarqube-sonarqube.apps.ocp.bct9l.sandbox1479.opentlc.com`.
 
-Um push na branch configurada dispara essa esteira. O EventListener `${component_id}-push` confere o repositório e a branch do webhook. Se a pasta da versão foi informada, o push também precisa alterar arquivos dessa pasta: no monorepositório do laboratório, `sidsmobile-rn-0.87.1` dispara a pilha 0.87.1 e `sidsmobile-rn-0.68.7` dispara a pilha 0.68.7. A revisão do PipelineRun é o commit do push. O segredo do webhook fica no Secret `${component_id}-webhook`.
+O formulário tem o campo Plataforma. Android é o padrão e mantém a esteira Gradle. iOS cria o pipeline que clona o código, roda o SonarQube, pede o build ao projeto GitLab `development/ios-build` e baixa o IPA. Android e iOS cria os dois pipelines, com volumes separados. A pilha 0.68.7 não compila iOS neste Xcode. A publicação do IPA fica desligada porque a App Store Mock ainda só recebe APK. As tasks iOS compartilhadas (`ios-static-analysis`, `trigger-ios-build`, `wait-ios-build`, `fetch-ios-ipa` e `publish-ios-ipa`) precisam existir no namespace `prodemge`.
+
+Um push na branch configurada dispara essa esteira. Quando a plataforma é Android e iOS, o mesmo push inicia os dois pipelines. O EventListener `${component_id}-push` confere o repositório e a branch do webhook. Se a pasta da versão foi informada, o push também precisa alterar arquivos dessa pasta: no monorepositório do laboratório, `sidsmobile-rn-0.87.1` dispara a pilha 0.87.1 e `sidsmobile-rn-0.68.7` dispara a pilha 0.68.7. A revisão do PipelineRun é o commit do push. O segredo do webhook fica no Secret `${component_id}-webhook`.
 
 Na topologia do componente, o ícone de editar código abre o OpenShift Dev Spaces na pasta da versão. O Deployment `${component_id}-code` carrega esse link. O catálogo não fixa `backstage.io/kubernetes-namespace`, para o Developer Hub conseguir ler o CheCluster em `openshift-devspaces`.
 

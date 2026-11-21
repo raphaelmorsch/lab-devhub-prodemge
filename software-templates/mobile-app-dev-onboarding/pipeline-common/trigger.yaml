@@ -18,6 +18,7 @@
 {%- set path_match = "true" -%}
 {%- endif -%}
 {%- set push_filter = "body.ref == '" ~ branch_ref ~ "' && (!has(body.deleted) || body.deleted == false) && has(body.after) && body.after != '0000000000000000000000000000000000000000' && (" ~ repo_match ~ ") && (" ~ path_match ~ ")" -%}
+{%- set platform = values.platform | default('android') -%}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -58,6 +59,7 @@ roleRef:
   kind: Role
   name: ${{ values.component_id }}-triggers
 ---
+{% if platform != 'ios' %}
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerTemplate
 metadata:
@@ -98,6 +100,50 @@ spec:
             persistentVolumeClaim:
               claimName: ${{ values.component_id }}-source
 ---
+{% endif %}
+{% if platform != 'android' %}
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: ${{ values.component_id }}-ios
+  namespace: prodemge
+  labels:
+    backstage.io/kubernetes-id: ${{ values.component_id }}
+spec:
+  params:
+    - name: git-revision
+      description: Commit recebido no push.
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: ${{ values.component_id }}-ios-
+        namespace: prodemge
+        labels:
+          backstage.io/kubernetes-id: ${{ values.component_id }}
+          tekton.dev/pipeline: ${{ values.component_id }}-ios
+        annotations:
+          prodemge.io/trigger: push
+          prodemge.io/react-native: ${{ values.stack | dump }}
+          prodemge.io/platform: ios
+      spec:
+        pipelineRef:
+          name: ${{ values.component_id }}-ios
+        params:
+          - name: source-url
+            value: ${{ values.source_url | dump }}
+          - name: source-revision
+            value: $(tt.params.git-revision)
+        taskRunTemplate:
+          serviceAccountName: pipeline
+        timeouts:
+          pipeline: 3h0m0s
+        workspaces:
+          - name: source
+            persistentVolumeClaim:
+              claimName: ${{ values.component_id }}-ios-source
+---
+{% endif %}
 apiVersion: triggers.tekton.dev/v1beta1
 kind: EventListener
 metadata:
@@ -108,6 +154,7 @@ metadata:
 spec:
   serviceAccountName: pipeline
   triggers:
+{% if platform != 'ios' %}
     - name: ${{ 'github' if use_github else 'gitlab' }}-push
       interceptors:
         - ref:
@@ -133,6 +180,34 @@ spec:
           ref: ${{ 'github-push' if use_github else 'gitlab-push' }}
       template:
         ref: ${{ values.component_id }}-android
+{% endif %}
+{% if platform != 'android' %}
+    - name: ${{ 'github' if use_github else 'gitlab' }}-push-ios
+      interceptors:
+        - ref:
+            name: ${{ 'github' if use_github else 'gitlab' }}
+            kind: ClusterInterceptor
+          params:
+            - name: secretRef
+              value:
+                secretName: ${{ values.component_id }}-webhook
+                secretKey: secret
+            - name: eventTypes
+              value:
+                - ${{ 'push' if use_github else 'Push Hook' }}
+        - ref:
+            name: cel
+            kind: ClusterInterceptor
+          params:
+            - name: filter
+              value: >-
+                ${{ push_filter }}
+      bindings:
+        - kind: ClusterTriggerBinding
+          ref: ${{ 'github-push' if use_github else 'gitlab-push' }}
+      template:
+        ref: ${{ values.component_id }}-ios
+{% endif %}
 ---
 apiVersion: route.openshift.io/v1
 kind: Route

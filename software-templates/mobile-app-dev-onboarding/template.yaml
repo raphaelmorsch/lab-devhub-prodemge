@@ -5,15 +5,18 @@ metadata:
   title: Onboarding mobile de Desenvolvimento
   description: >
     Registra uma aplicação React Native já existente no catálogo e gera o
-    pipeline Tekton de Clone, Dependencies, análise estática no SonarQube,
-    Build e Publish na App Store Mock. As pilhas 0.68.7 e 0.87.1 usam o
-    flavor desenvolvimento. A 0.88.1 não tem flavor e gera assembleRelease.
-    Não há task de assinatura da APK. Um push na branch da aplicação, na
+    pipeline Tekton da plataforma escolhida. Android faz Clone, Dependencies,
+    análise estática no SonarQube, Build e Publish do APK. iOS faz Clone,
+    análise estática, pedido de build ao Mac, download do IPA e, quando
+    habilitado, publicação. As pilhas 0.68.7 e 0.87.1 usam o flavor
+    desenvolvimento no Android. A 0.88.1 não tem flavor e gera assembleRelease.
+    A 0.68.7 não compila iOS neste Xcode. Um push na branch da aplicação, na
     versão desta esteira, dispara o pipeline. A Application Argo CD publica
     os manifestos.
   tags:
     - react-native
     - android
+    - ios
     - tekton
     - sonarqube
 spec:
@@ -66,6 +69,23 @@ spec:
             - React Native 0.68.7 (Node 16, JDK 11, flavor desenvolvimento)
             - React Native 0.87.1 (Node 24, JDK 17, flavor desenvolvimento)
             - React Native 0.88.1 (Node 24, JDK 17, sem flavor)
+        platform:
+          title: Plataforma
+          type: string
+          default: android
+          description: >
+            Android gera o pipeline Gradle e publica o APK. iOS gera o
+            pipeline que pede o build ao Mac e baixa o IPA. Android e iOS
+            gera os dois, cada um com o próprio volume. A pilha 0.68.7 não
+            compila iOS neste laboratório.
+          enum:
+            - android
+            - ios
+            - both
+          enumNames:
+            - Android
+            - iOS
+            - Android e iOS
         source_subdirectory:
           title: Pasta da versão no repositório
           type: string
@@ -136,6 +156,7 @@ spec:
           source_url: ${{ parameters.source_url }}
           source_revision: ${{ parameters.source_revision }}
           stack: ${{ parameters.stack }}
+          platform: ${{ parameters.platform }}
           flavor: ${{ 'desenvolvimento' if parameters.stack != 'rn-0.88.1' else '' }}
           source_subdirectory: ${{ parameters.source_subdirectory }}
           host: ${{ parameters.repo.host }}
@@ -143,19 +164,51 @@ spec:
           sonarqube_url: https://sonarqube-sonarqube.apps.ocp.bct9l.sandbox1479.opentlc.com
 
     - id: fetch-pipeline
-      name: Gerar o pipeline Tekton
+      name: Gerar o webhook e os manifestos comuns
       action: fetch:template
       input:
-        url: ./pipeline
+        url: ./pipeline-common
         targetPath: ./pipeline
         values:
           component_id: ${{ parameters.component_id }}
           source_url: ${{ parameters.source_url }}
           source_revision: ${{ parameters.source_revision }}
           stack: ${{ parameters.stack }}
+          platform: ${{ parameters.platform }}
           flavor: ${{ 'desenvolvimento' if parameters.stack != 'rn-0.88.1' else '' }}
           source_subdirectory: ${{ parameters.source_subdirectory }}
           webhook_secret: ${{ secrets.webhook_secret }}
+
+    - id: fetch-android-pipeline
+      name: Gerar o pipeline Android
+      if: ${{ parameters.platform != 'ios' }}
+      action: fetch:template
+      input:
+        url: ./pipeline-android
+        targetPath: ./pipeline
+        values:
+          component_id: ${{ parameters.component_id }}
+          source_url: ${{ parameters.source_url }}
+          source_revision: ${{ parameters.source_revision }}
+          stack: ${{ parameters.stack }}
+          platform: ${{ parameters.platform }}
+          flavor: ${{ 'desenvolvimento' if parameters.stack != 'rn-0.88.1' else '' }}
+          source_subdirectory: ${{ parameters.source_subdirectory }}
+
+    - id: fetch-ios-pipeline
+      name: Gerar o pipeline iOS
+      if: ${{ parameters.platform != 'android' }}
+      action: fetch:template
+      input:
+        url: ./pipeline-ios
+        targetPath: ./pipeline
+        values:
+          component_id: ${{ parameters.component_id }}
+          source_url: ${{ parameters.source_url }}
+          source_revision: ${{ parameters.source_revision }}
+          stack: ${{ parameters.stack }}
+          platform: ${{ parameters.platform }}
+          source_subdirectory: ${{ parameters.source_subdirectory }}
 
     - id: create-sonar-project
       name: Criar o projeto no SonarQube
@@ -211,8 +264,13 @@ spec:
         entityRef: component:default/${{ parameters.component_id }}
       - title: Projeto no SonarQube
         url: https://sonarqube-sonarqube.apps.ocp.bct9l.sandbox1479.opentlc.com/dashboard?id=${{ parameters.component_id }}
-      - title: Pipeline no OpenShift
+      - title: Pipeline Android no OpenShift
+        if: ${{ parameters.platform != 'ios' }}
         url: https://console-openshift-console.apps.ocp.bct9l.sandbox1479.opentlc.com/k8s/ns/prodemge/tekton.dev~v1beta1~Pipeline/${{ parameters.component_id }}-android
+        icon: kind:pod
+      - title: Pipeline iOS no OpenShift
+        if: ${{ parameters.platform != 'android' }}
+        url: https://console-openshift-console.apps.ocp.bct9l.sandbox1479.opentlc.com/k8s/ns/prodemge/tekton.dev~v1beta1~Pipeline/${{ parameters.component_id }}-ios
         icon: kind:pod
       - title: Webhook de push
         url: https://${{ parameters.component_id }}-push-prodemge.apps.ocp.bct9l.sandbox1479.opentlc.com

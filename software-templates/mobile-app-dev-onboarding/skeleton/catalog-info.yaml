@@ -23,6 +23,7 @@ metadata:
     gitlab.com/project-slug: ${{ values.destination | dump }}
     {%- endif %}
     prodemge.io/react-native: ${{ values.stack | dump }}
+    prodemge.io/platform: ${{ values.platform | default('android') | dump }}
     {%- if values.source_subdirectory %}
     prodemge.io/source-subdirectory: ${{ values.source_subdirectory | dump }}
     {%- endif %}
@@ -33,7 +34,12 @@ metadata:
     prodemge.io/sonarqube: ${{ values.sonarqube_url | dump }}
   tags:
     - react-native
+{% if values.platform | default('android') != 'ios' %}
     - android
+{% endif %}
+{% if values.platform | default('android') != 'android' %}
+    - ios
+{% endif %}
     - tekton
     - gitops
     - sonarqube
