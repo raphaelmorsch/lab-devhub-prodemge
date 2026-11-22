@@ -7,8 +7,8 @@ metadata:
     Registra uma aplicação React Native já existente no catálogo e gera o
     pipeline Tekton da plataforma escolhida. Android faz Clone, Dependencies,
     análise estática no SonarQube, Build e Publish do APK. iOS faz Clone,
-    análise estática, pedido de build ao Mac, download do IPA e, quando
-    habilitado, publicação. As pilhas 0.68.7 e 0.87.1 usam o flavor
+    análise estática, registro do build no coordenador, espera do agente no
+    Mac, download do IPA e, quando habilitado, publicação. As pilhas 0.68.7 e 0.87.1 usam o flavor
     desenvolvimento no Android. A 0.88.1 não tem flavor e gera assembleRelease.
     A 0.68.7 não compila iOS neste Xcode. Um push na branch da aplicação, na
     versão desta esteira, dispara o pipeline. A Application Argo CD publica
@@ -75,9 +75,10 @@ spec:
           default: android
           description: >
             Android gera o pipeline Gradle e publica o APK. iOS gera o
-            pipeline que pede o build ao Mac e baixa o IPA. Android e iOS
-            gera os dois, cada um com o próprio volume. A pilha 0.68.7 não
-            compila iOS neste laboratório.
+            pipeline que registra o build no coordenador; o agente do Mac
+            compila e o Tekton baixa o IPA. Android e iOS gera os dois,
+            cada um com o próprio volume. A pilha 0.68.7 não compila iOS
+            neste laboratório.
           enum:
             - android
             - ios

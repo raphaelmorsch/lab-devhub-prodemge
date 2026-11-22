@@ -7,16 +7,8 @@ metadata:
     backstage.io/kubernetes-id: ${{ values.component_id }}
     type: pipeline
 spec:
-  description: Clona a aplicação, publica a análise no SonarQube, pede o build iOS ao Mac, baixa o IPA e pode publicar na App Store Mock.
+  description: Clona a aplicação, publica a análise no SonarQube, registra o build no coordenador, espera o agente do Mac e baixa o IPA.
   params:
-    - name: project-id
-      type: string
-      default: "16"
-      description: Mantido para compatibilidade. O build iOS vai para o agente do Mac, sem GitLab Runner.
-    - name: git-ref
-      type: string
-      default: main
-      description: Revisão do projeto de CI. Não é o commit da aplicação.
     - name: react-native-version
       type: string
       default: ${{ values.stack | dump }}
@@ -29,7 +21,7 @@ spec:
     - name: source-revision
       type: string
       default: ${{ values.source_revision | dump }}
-      description: Commit da aplicação que o clone e o Mac devem usar.
+      description: Branch, tag ou commit da aplicação. O agente resolve a revisão e compila esse código.
     - name: run-ios
       type: string
       default: "true"
@@ -39,6 +31,10 @@ spec:
     - name: timeout
       type: string
       default: "7200"
+    - name: coordinator-url
+      type: string
+      default: "http://macos-build-coordinator.prodemge.svc:8080"
+      description: Fila interna do build iOS. O agente do Mac consulta a Route correspondente.
     - name: sonar-host-url
       type: string
       default: "http://sonarqube.sonarqube.svc.cluster.local:9000"
@@ -58,11 +54,14 @@ spec:
   workspaces:
     - name: source
   results:
-    - name: gitlab-pipeline-id
+    - name: build-id
+      description: Identificador do build na fila do coordenador.
       value: $(tasks.request-build.results.gitlab-pipeline-id)
-    - name: gitlab-pipeline-url
+    - name: build-url
+      description: Endereço do build no coordenador.
       value: $(tasks.wait.results.gitlab-pipeline-url)
-    - name: git-sha
+    - name: resolved-revision
+      description: Commit que o Mac compilou.
       value: $(tasks.wait.results.git-sha)
   tasks:
     - name: clone
@@ -102,10 +101,8 @@ spec:
       taskRef:
         name: trigger-ios-build
       params:
-        - name: project-id
-          value: $(params.project-id)
-        - name: git-ref
-          value: $(params.git-ref)
+        - name: coordinator-url
+          value: $(params.coordinator-url)
         - name: react-native-version
           value: $(params.react-native-version)
         - name: source-url
@@ -124,8 +121,8 @@ spec:
       taskRef:
         name: wait-ios-build
       params:
-        - name: project-id
-          value: $(params.project-id)
+        - name: coordinator-url
+          value: $(params.coordinator-url)
         - name: pipeline-id
           value: $(tasks.request-build.results.gitlab-pipeline-id)
         - name: expected-sha
@@ -140,8 +137,8 @@ spec:
       taskRef:
         name: fetch-ios-ipa
       params:
-        - name: project-id
-          value: $(params.project-id)
+        - name: coordinator-url
+          value: $(params.coordinator-url)
         - name: pipeline-id
           value: $(tasks.request-build.results.gitlab-pipeline-id)
       workspaces:

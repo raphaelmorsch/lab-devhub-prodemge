@@ -7,7 +7,7 @@ Manifestos de onboarding gerados pelo Software Template de Desenvolvimento. O c�
 O pipeline `${{ values.component_id }}-android`, no namespace `prodemge`, executa clone, dependências, análise estática no SonarQube, build Android e publicação do APK. Não há task de assinatura da APK.
 {% endif %}
 {% if platform != 'android' %}
-O pipeline `${{ values.component_id }}-ios` executa clone, análise estática, pedido de build ao Mac e download do IPA. A publicação do IPA permanece desligada até a App Store Mock aceitar esse pacote. O volume desse pipeline é `${{ values.component_id }}-ios-source`.
+O pipeline `${{ values.component_id }}-ios` executa clone, análise estática, registro do build no coordenador e download do IPA produzido pelo agente do Mac. A publicação do IPA permanece desligada até a App Store Mock aceitar esse pacote. O volume desse pipeline é `${{ values.component_id }}-ios-source`.
 {% endif %}
 
 O painel do projeto fica em `${{ values.sonarqube_url }}/dashboard?id=${{ values.component_id }}`.
