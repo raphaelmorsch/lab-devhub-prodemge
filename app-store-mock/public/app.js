@@ -30,12 +30,14 @@ async function loadApps() {
 
 function renderAppCard(app) {
   const latest = app.latest || {};
+  const ios = latest.platform === 'ios';
+  const packageLabel = ios ? 'IPA' : 'APK';
   const download = latest.downloadPath
     ? `<a class="pf-v5-c-button pf-m-primary" href="${escapeAttr(latest.downloadPath)}">
          <span class="pf-v5-c-button__icon pf-m-start">
            <i class="fas fa-download" aria-hidden="true"></i>
          </span>
-         Baixar APK
+         Baixar ${packageLabel}
        </a>`
     : '';
 
@@ -46,6 +48,9 @@ function renderAppCard(app) {
           <h2 class="pf-v5-c-title pf-m-lg app-card-title">${escapeHtml(app.id)}</h2>
         </div>
         <div class="pf-v5-c-card__actions">
+          <span class="pf-v5-c-label ${ios ? 'pf-m-purple' : 'pf-m-blue'}">
+            <span class="pf-v5-c-label__content">${packageLabel}</span>
+          </span>
           <span class="pf-v5-c-label pf-m-blue">
             <span class="pf-v5-c-label__content">${escapeHtml(String(app.releaseCount))} release(s)</span>
           </span>
@@ -57,7 +62,7 @@ function renderAppCard(app) {
           ${descItem('Ambiente', latest.environment || latest.flavor || '—')}
           ${descItem('Publicado em', formatDate(latest.createdAt))}
           ${descItem('Commit', short(latest.gitCommit) || '—')}
-          ${descItem('Tamanho', formatBytes(latest.apkSizeBytes))}
+          ${descItem('Tamanho', formatBytes(latest.ipaSizeBytes || latest.apkSizeBytes))}
           ${descItem('PipelineRun', latest.pipelineRun || '—')}
         </dl>
       </div>
@@ -88,7 +93,7 @@ function emptyState() {
         <i class="fas fa-box-open pf-v5-c-empty-state__icon" aria-hidden="true"></i>
         <h2 class="pf-v5-c-title pf-m-lg">Nenhuma aplicação publicada</h2>
         <div class="pf-v5-c-empty-state__body">
-          Publique um APK pela esteira Tekton para aparecer aqui.
+          Publique um APK ou um IPA pela esteira Tekton para aparecer aqui.
         </div>
       </div>
     </div>

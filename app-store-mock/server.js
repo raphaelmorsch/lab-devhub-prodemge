@@ -4,7 +4,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { randomUUID } = require('crypto');
+const { randomUUID, timingSafeEqual } = require('crypto');
 const https = require('https');
 const http = require('http');
 const { NodeHttpHandler } = require('@smithy/node-http-handler');
@@ -28,6 +28,10 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 512 * 1024 * 1024 },
 });
+const uploadRelease = upload.fields([
+  { name: 'apk', maxCount: 1 },
+  { name: 'ipa', maxCount: 1 },
+]);
 
 const app = express();
 app.disable('x-powered-by');
@@ -74,6 +78,29 @@ async function streamToBuffer(stream) {
 
 function releasePrefix(appId, releaseId) {
   return `apps/${appId}/releases/${releaseId}`;
+}
+
+function firstFile(files, name) {
+  const list = files && files[name];
+  return list && list[0] ? list[0] : null;
+}
+
+function safeFileName(name, fallback) {
+  const base = path.basename(String(name || fallback));
+  const cleaned = base.replace(/[^A-Za-z0-9._-]/g, '');
+  return cleaned || fallback;
+}
+
+function ipaAuthorized(req) {
+  const expected = process.env.IPA_PUBLISH_TOKEN || '';
+  if (!expected) return false;
+  const header = req.get('authorization') || '';
+  const match = /^Bearer\s+(\S+)\s*$/i.exec(header);
+  if (!match) return false;
+  const received = Buffer.from(match[1]);
+  const wanted = Buffer.from(expected);
+  if (received.length !== wanted.length) return false;
+  return timingSafeEqual(received, wanted);
 }
 
 async function putJson(key, value) {
@@ -259,39 +286,69 @@ app.get('/api/apps/:appId/releases/:releaseId/download', async (req, res) => {
   try {
     const metaKey = `${releasePrefix(req.params.appId, req.params.releaseId)}/metadata.json`;
     const meta = JSON.parse((await getObject(metaKey)).body.toString('utf8'));
-    const apkKey = meta.apkObjectKey || `${releasePrefix(req.params.appId, req.params.releaseId)}/app.apk`;
-    const apk = await getObject(apkKey);
-    const filename = meta.apkFileName || `${req.params.appId}-${req.params.releaseId}.apk`;
-    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+    const ios = meta.platform === 'ios';
+    const objectKey = ios
+      ? meta.ipaObjectKey
+      : meta.apkObjectKey || `${releasePrefix(req.params.appId, req.params.releaseId)}/app.apk`;
+    const file = await getObject(objectKey);
+    const filename = safeFileName(
+      ios ? meta.ipaFileName : meta.apkFileName,
+      `${req.params.appId}-${req.params.releaseId}.${ios ? 'ipa' : 'apk'}`,
+    );
+    res.setHeader(
+      'Content-Type',
+      ios ? 'application/octet-stream' : 'application/vnd.android.package-archive',
+    );
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(apk.body);
+    res.send(file.body);
   } catch (err) {
     if (err.statusCode === 404 || err.name === 'NoSuchKey') {
-      res.status(404).json({ error: 'APK não encontrado' });
+      res.status(404).json({ error: 'pacote não encontrado' });
       return;
     }
     console.error(err);
-    res.status(500).json({ error: 'falha ao baixar APK' });
+    res.status(500).json({ error: 'falha ao baixar o pacote' });
   }
 });
 
-app.post('/api/apps/:appId/releases', upload.single('apk'), async (req, res) => {
+app.post('/api/apps/:appId/releases', uploadRelease, async (req, res) => {
   try {
     const appId = req.params.appId;
-    if (!req.file) {
+    const apk = firstFile(req.files, 'apk');
+    const ipa = firstFile(req.files, 'ipa');
+    if (apk && ipa) {
+      res.status(400).json({ error: 'envie apenas um pacote, apk ou ipa' });
+      return;
+    }
+    if (!apk && !ipa) {
       res.status(400).json({ error: 'campo multipart "apk" é obrigatório' });
       return;
+    }
+    if (ipa) {
+      if (!process.env.IPA_PUBLISH_TOKEN) {
+        res.status(503).json({ error: 'publicação de IPA indisponível' });
+        return;
+      }
+      if (!ipaAuthorized(req)) {
+        res.status(401).json({ error: 'credencial rejeitada' });
+        return;
+      }
+      if (ipa.buffer.length < 4 || ipa.buffer[0] !== 0x50 || ipa.buffer[1] !== 0x4b) {
+        res.status(400).json({ error: 'o arquivo enviado não é um IPA' });
+        return;
+      }
     }
 
     const releaseId = randomUUID();
     const createdAt = new Date().toISOString();
     const prefix = releasePrefix(appId, releaseId);
-    const apkObjectKey = `${prefix}/app.apk`;
     const metadataObjectKey = `${prefix}/metadata.json`;
-
+    const file = ipa || apk;
+    const objectKey = `${prefix}/${ipa ? 'app.ipa' : 'app.apk'}`;
     const metadata = {
       id: releaseId,
       appId,
+      platform: ipa ? 'ios' : 'android',
       createdAt,
       versionName: req.body.versionName || req.body.version || 'unknown',
       versionCode: req.body.versionCode || '',
@@ -304,17 +361,27 @@ app.post('/api/apps/:appId/releases', upload.single('apk'), async (req, res) => 
       taskRun: req.body.taskRun || '',
       buildResult: req.body.buildResult || 'success',
       notes: req.body.notes || '',
-      apkFileName: req.file.originalname || `${appId}.apk`,
-      apkSizeBytes: req.file.size,
-      apkObjectKey,
       metadataObjectKey,
       downloadPath: `/api/apps/${encodeURIComponent(appId)}/releases/${encodeURIComponent(releaseId)}/download`,
     };
+    if (ipa) {
+      metadata.ipaFileName = safeFileName(file.originalname, `${appId}.ipa`);
+      metadata.ipaSizeBytes = file.size;
+      metadata.ipaObjectKey = objectKey;
+    } else {
+      metadata.apkFileName = safeFileName(file.originalname, `${appId}.apk`);
+      metadata.apkSizeBytes = file.size;
+      metadata.apkObjectKey = objectKey;
+    }
 
-    await putBinary(apkObjectKey, req.file.buffer, 'application/vnd.android.package-archive');
+    await putBinary(
+      objectKey,
+      file.buffer,
+      ipa ? 'application/octet-stream' : 'application/vnd.android.package-archive',
+    );
     await putJson(metadataObjectKey, metadata);
 
-    console.log(`published ${appId} release ${releaseId} (${metadata.apkSizeBytes} bytes)`);
+    console.log(`published ${appId} release ${releaseId} platform=${metadata.platform} (${file.size} bytes)`);
     res.status(201).json(metadata);
   } catch (err) {
     console.error(err);
@@ -322,11 +389,18 @@ app.post('/api/apps/:appId/releases', upload.single('apk'), async (req, res) => 
   }
 });
 
-if (!USE_S3) {
-  fs.mkdirSync(LOCAL_DATA_DIR, { recursive: true });
-  console.warn('S3 não configurado; usando armazenamento local em', LOCAL_DATA_DIR);
+function start(port = PORT) {
+  if (!USE_S3) {
+    fs.mkdirSync(LOCAL_DATA_DIR, { recursive: true });
+    console.warn('S3 não configurado; usando armazenamento local em', LOCAL_DATA_DIR);
+  }
+  return app.listen(port, '0.0.0.0', () => {
+    console.log(`app-store-mock listening on :${port} storage=${USE_S3 ? 's3' : 'local'}`);
+  });
 }
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`app-store-mock listening on :${PORT} storage=${USE_S3 ? 's3' : 'local'}`);
-});
+if (require.main === module) {
+  start();
+}
+
+module.exports = { app, start };

@@ -53,6 +53,11 @@ spec:
                 secretKeyRef:
                   name: app-store-mock-bucket
                   key: AWS_SECRET_ACCESS_KEY
+            - name: IPA_PUBLISH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: app-store-ipa-publish
+                  key: token
           readinessProbe:
             httpGet:
               path: /healthz

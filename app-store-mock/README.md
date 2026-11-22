@@ -1,6 +1,6 @@
 # PRODEMGE App Store Mock
 
-Loja mock da PoC: recebe APKs via API multipart e disponibiliza download na UI.
+Loja mock da PoC: recebe APKs e IPAs via API multipart e disponibiliza download na UI. O APK continua sem autenticação. O IPA exige `Authorization: Bearer` com o token do Secret `app-store-ipa-publish`.
 
 ## API
 
@@ -9,7 +9,7 @@ Loja mock da PoC: recebe APKs via API multipart e disponibiliza download na UI.
 - `GET /api/apps/{appId}/releases`
 - `GET /api/apps/{appId}/releases/{releaseId}`
 - `GET /api/apps/{appId}/releases/{releaseId}/download`
-- `POST /api/apps/{appId}/releases` — `multipart/form-data` com campo `apk` e metadados (`versionName`, `flavor`, `gitCommit`, `pipelineRun`, …)
+- `POST /api/apps/{appId}/releases` — `multipart/form-data` com o campo `apk`, sem autenticação, ou com o campo `ipa` e o bearer token. Os metadados opcionais são `versionName`, `flavor`, `gitCommit`, `pipelineRun`, `reactNativeVersion` e `platform`.
 
 ## Storage
 
