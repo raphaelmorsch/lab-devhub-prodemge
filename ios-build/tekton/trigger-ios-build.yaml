@@ -6,16 +6,26 @@ metadata:
   labels:
     app.kubernetes.io/part-of: prodemge-ios
 spec:
-  description: Dispara o pipeline GitLab do build iOS e devolve o identificador criado para esta execução.
+  description: Registra um build iOS na fila do coordenador. O agente do Mac reserva esse job; a Task não envia comandos de shell.
   params:
+    - name: coordinator-url
+      type: string
+      default: "http://macos-build-coordinator.prodemge.svc:8080"
+    - name: coordinator-public-url
+      type: string
+      default: "https://macos-build-coordinator-prodemge.apps.ocp.bct9l.sandbox1479.opentlc.com"
     - name: gitlab-url
       type: string
-      default: "https://gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com"
+      default: ""
+      description: Mantido para pipelines já gerados. O coordenador não usa o GitLab CI.
     - name: project-id
       type: string
+      default: ""
+      description: Mantido para pipelines já gerados. O coordenador não usa o projeto de CI.
     - name: git-ref
       type: string
-      description: Branch, tag ou SHA. A API cria o pipeline exatamente nessa revisão.
+      default: ""
+      description: Mantido para pipelines já gerados. A revisão compilada é source-revision.
     - name: react-native-version
       type: string
       default: "rn-0.87.1"
@@ -28,28 +38,28 @@ spec:
     - name: source-revision
       type: string
       default: ""
-      description: SHA da aplicação que o runner deve compilar. É diferente da revisão do projeto de CI.
+      description: Branch, tag ou commit da aplicação que o Mac deve compilar.
     - name: run-ios
       type: string
       default: "false"
     - name: build-request-id
       type: string
-      description: Identificador único desta execução. Evita confundir pipelines disparados em paralelo.
+      description: Identificador único desta execução. Um novo PipelineRun pode repetir um pedido que falhou.
     - name: secret-name
       type: string
-      default: gitlab-ios-build
+      default: macos-build-api
   results:
     - name: gitlab-pipeline-id
-      description: Identificador do pipeline GitLab criado por esta Task.
+      description: Identificador do build na fila do coordenador.
     - name: gitlab-pipeline-url
-      description: URL do pipeline GitLab.
+      description: URL do build no coordenador.
     - name: git-sha
-      description: SHA que o GitLab associou ao pipeline criado.
+      description: Revisão solicitada, confirmada pelo coordenador.
   steps:
     - name: trigger
       image: image-registry.openshift-image-registry.svc:5000/openshift/nodejs:22-ubi8
       env:
-        - name: GITLAB_TOKEN
+        - name: COORDINATOR_TOKEN
           valueFrom:
             secretKeyRef:
               name: $(params.secret-name)
@@ -57,56 +67,57 @@ spec:
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
-        if [ -z "${GITLAB_TOKEN}" ]; then
-          echo "Token do GitLab ausente no Secret $(params.secret-name)."
+        if [ -z "${COORDINATOR_TOKEN}" ]; then
+          echo "Token do coordenador ausente no Secret $(params.secret-name)."
           exit 1
         fi
-        base="$(params.gitlab-url)"
+        if [ "$(params.run-ios)" != "true" ]; then
+          echo "RUN_IOS precisa ser true para enfileirar o build no Mac."
+          exit 1
+        fi
+        base="$(params.coordinator-url)"
         base="${base%/}"
-        project="$(params.project-id)"
-        ref="$(params.git-ref)"
-        request_id="$(params.build-request-id)"
+        public="$(params.coordinator-public-url)"
+        public="${public%/}"
         payload="$(node -e '
           const payload = {
-            ref: process.argv[1],
-            variables: [
-              {key: "BUILD_REQUEST_ID", value: process.argv[2]},
-              {key: "RN_VERSION", value: process.argv[3]},
-              {key: "SOURCE_URL", value: process.argv[4]},
-              {key: "SOURCE_SUBDIRECTORY", value: process.argv[5]},
-              {key: "SOURCE_SHA", value: process.argv[6]},
-              {key: "RUN_IOS", value: process.argv[7]}
-            ]
+            build_request_id: process.argv[1],
+            source_url: process.argv[2],
+            source_revision: process.argv[3],
+            source_subdirectory: process.argv[4],
+            react_native_version: process.argv[5],
+            script_set: "ios-build-v1"
           };
           process.stdout.write(JSON.stringify(payload));
-        ' "$(params.git-ref)" "${request_id}" "$(params.react-native-version)" "$(params.source-url)" "$(params.source-subdirectory)" "$(params.source-revision)" "$(params.run-ios)")"
-
+        ' "$(params.build-request-id)" "$(params.source-url)" "$(params.source-revision)" "$(params.source-subdirectory)" "$(params.react-native-version)")"
         tmp="$(mktemp)"
         status="$(curl -sS --max-time 60 -o "${tmp}" -w "%{http_code}" \
           -X POST \
-          -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+          -H "Authorization: Bearer ${COORDINATOR_TOKEN}" \
           -H "Content-Type: application/json" \
           --data "${payload}" \
-          "${base}/api/v4/projects/${project}/pipeline" || true)"
-        if [ "${status}" != "201" ]; then
-          echo "Falha ao disparar o pipeline GitLab. HTTP ${status}."
+          "${base}/builds" || true)"
+        if [ "${status}" != "201" ] && [ "${status}" != "200" ]; then
+          echo "Falha ao registrar o build iOS. HTTP ${status}."
           rm -f "${tmp}"
           exit 1
         fi
         node -e '
           const fs = require("fs");
           const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-          if (!data.id || !data.sha || !data.web_url) {
-            console.error("Resposta do GitLab sem id, sha ou web_url.");
+          if (!data.id || !data.source_revision) {
+            console.error("Resposta do coordenador sem id ou revisão.");
             process.exit(2);
           }
+          const page = process.argv[3].replace(/\/$/, "") + "/builds/" + data.id;
           fs.writeFileSync(process.argv[2], String(data.id));
-          fs.writeFileSync(process.argv[3], String(data.web_url));
-          fs.writeFileSync(process.argv[4], String(data.sha));
-          console.log("Pipeline GitLab " + data.id + " criado para " + data.sha);
-          console.log(data.web_url);
+          fs.writeFileSync(process.argv[4], page);
+          fs.writeFileSync(process.argv[5], String(data.source_revision));
+          console.log("Build " + data.id + " registrado para " + data.source_revision);
+          console.log(page);
         ' "${tmp}" \
           "$(results.gitlab-pipeline-id.path)" \
+          "${public}" \
           "$(results.gitlab-pipeline-url.path)" \
           "$(results.git-sha.path)"
         rm -f "${tmp}"

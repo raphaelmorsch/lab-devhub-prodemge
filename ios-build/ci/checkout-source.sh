@@ -10,13 +10,23 @@ fi
 dest="${CI_PROJECT_DIR}/source"
 rm -rf "${dest}"
 git clone "${SOURCE_URL}" "${dest}"
-git -C "${dest}" checkout --detach "${SOURCE_SHA}"
+if ! git -C "${dest}" checkout --detach "${SOURCE_SHA}"; then
+  echo "Não foi possível obter a revisão ${SOURCE_SHA}."
+  exit 1
+fi
 actual="$(git -C "${dest}" rev-parse HEAD)"
-case "${actual}" in
-  "${SOURCE_SHA}"*) ;;
+case "${SOURCE_SHA}" in
+  *[!0-9a-fA-F]*)
+    echo "Revisão ${SOURCE_SHA} resolvida para ${actual}."
+    ;;
   *)
-    echo "Revisão obtida ${actual} não corresponde a ${SOURCE_SHA}."
-    exit 1
+    case "${actual}" in
+      "${SOURCE_SHA}"*) ;;
+      *)
+        echo "Revisão obtida ${actual} não corresponde a ${SOURCE_SHA}."
+        exit 1
+        ;;
+    esac
     ;;
 esac
 

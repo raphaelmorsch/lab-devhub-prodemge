@@ -6,44 +6,52 @@ metadata:
   labels:
     app.kubernetes.io/part-of: prodemge-ios
 spec:
-  description: Aguarda o pipeline GitLab informado e só termina com sucesso quando ele conclui com sucesso.
+  description: Aguarda o build registrado no coordenador e só termina com sucesso quando o Mac entrega o IPA.
   params:
+    - name: coordinator-url
+      type: string
+      default: "http://macos-build-coordinator.prodemge.svc:8080"
+    - name: coordinator-public-url
+      type: string
+      default: "https://macos-build-coordinator-prodemge.apps.ocp.bct9l.sandbox1479.opentlc.com"
     - name: gitlab-url
       type: string
-      default: "https://gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com"
+      default: ""
+      description: Mantido para pipelines já gerados. A consulta vai ao coordenador.
     - name: project-id
       type: string
+      default: ""
+      description: Mantido para pipelines já gerados.
     - name: pipeline-id
       type: string
+      description: Identificador do build devolvido pelo coordenador.
     - name: expected-sha
       type: string
       default: ""
-      description: Quando informado, a Task falha se o pipeline acompanhado não for exatamente esse commit.
+      description: Revisão solicitada. A Task falha se o build acompanhado não for essa revisão.
     - name: poll-interval
       type: string
       default: "15"
-      description: Intervalo entre consultas, em segundos.
     - name: timeout
       type: string
       default: "1800"
-      description: Tempo máximo de espera, em segundos.
     - name: secret-name
       type: string
-      default: gitlab-ios-build
+      default: macos-build-api
   results:
     - name: status
-      description: Estado terminal do pipeline GitLab.
+      description: Estado terminal do build.
     - name: gitlab-pipeline-url
-      description: URL do pipeline GitLab.
+      description: URL do build no coordenador.
     - name: git-sha
-      description: SHA confirmado na consulta do pipeline.
+      description: Commit resolvido pelo Mac, ou a revisão solicitada quando o checkout não chegou a gravá-lo.
     - name: artifact-reference
-      description: Referência ao artefato, quando o pipeline já tiver produzido uma.
+      description: IPA disponível no coordenador quando o build conclui com sucesso.
   steps:
     - name: wait
       image: image-registry.openshift-image-registry.svc:5000/openshift/nodejs:22-ubi8
       env:
-        - name: GITLAB_TOKEN
+        - name: COORDINATOR_TOKEN
           valueFrom:
             secretKeyRef:
               name: $(params.secret-name)
@@ -51,20 +59,21 @@ spec:
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
-        if [ -z "${GITLAB_TOKEN}" ]; then
-          echo "Token do GitLab ausente no Secret $(params.secret-name)."
+        if [ -z "${COORDINATOR_TOKEN}" ]; then
+          echo "Token do coordenador ausente no Secret $(params.secret-name)."
           exit 1
         fi
-        base="$(params.gitlab-url)"
+        base="$(params.coordinator-url)"
         base="${base%/}"
-        project="$(params.project-id)"
-        pipeline="$(params.pipeline-id)"
+        public="$(params.coordinator-public-url)"
+        public="${public%/}"
+        build="$(params.pipeline-id)"
         expected="$(params.expected-sha)"
         interval="$(params.poll-interval)"
         timeout="$(params.timeout)"
         deadline="$((SECONDS + timeout))"
-        url="${base}/api/v4/projects/${project}/pipelines/${pipeline}"
-        echo "Aguardando pipeline ${pipeline}."
+        url="${base}/builds/${build}"
+        echo "Aguardando build ${build}."
 
         while true; do
           if [ "${SECONDS}" -ge "${deadline}" ]; then
@@ -73,7 +82,7 @@ spec:
           fi
           tmp="$(mktemp)"
           status="$(curl -sS --max-time 60 -o "${tmp}" -w "%{http_code}" \
-            -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+            -H "Authorization: Bearer ${COORDINATOR_TOKEN}" \
             "${url}" || true)"
           case "${status}" in
             200)
@@ -85,48 +94,64 @@ spec:
               continue
               ;;
             *)
-              echo "Consulta do pipeline falhou. HTTP ${status}."
+              echo "Consulta do build falhou. HTTP ${status}."
               rm -f "${tmp}"
               exit 1
               ;;
           esac
-          read -r state sha web artifact <<EOF
+          read -r state revision resolved artifact <<EOF
         $(node -e '
           const fs = require("fs");
           const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
           const state = data.status || "";
-          const sha = data.sha || "";
-          const web = data.web_url || "";
-          process.stdout.write([state, sha, web, ""].join(" "));
+          const revision = data.source_revision || "";
+          const resolved = data.resolved_sha || revision;
+          const artifact = data.artifact_ready ? "ipa" : "";
+          process.stdout.write([state, revision, resolved, artifact].join(" "));
         ' "${tmp}")
         EOF
+          errfile="$(mktemp)"
+          logfile="$(mktemp)"
+          node -e '
+            const fs = require("fs");
+            const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            fs.writeFileSync(process.argv[2], data.error || "");
+            fs.writeFileSync(process.argv[3], data.log_tail || "");
+          ' "${tmp}" "${errfile}" "${logfile}"
           rm -f "${tmp}"
           echo "Estado ${state}."
           case "${state}" in
-            success|failed|canceled|canceling|skipped)
-              if [ -n "${expected}" ] && [ "${sha}" != "${expected}" ]; then
-                echo "O pipeline ${pipeline} pertence ao commit ${sha}, diferente de ${expected}."
+            succeeded|failed)
+              if [ -n "${expected}" ] && [ "${revision}" != "${expected}" ]; then
+                echo "O build ${build} é da revisão ${revision}, diferente de ${expected}."
+                rm -f "${errfile}" "${logfile}"
                 exit 1
               fi
+              page="${public}/builds/${build}"
               printf '%s' "${state}" > "$(results.status.path)"
-              printf '%s' "${web}" > "$(results.gitlab-pipeline-url.path)"
-              printf '%s' "${sha}" > "$(results.git-sha.path)"
+              printf '%s' "${page}" > "$(results.gitlab-pipeline-url.path)"
+              printf '%s' "${resolved}" > "$(results.git-sha.path)"
               printf '%s' "${artifact}" > "$(results.artifact-reference.path)"
-              if [ -n "${web}" ]; then
-                echo "Pipeline: ${web}"
-              fi
-              if [ "${state}" != "success" ]; then
-                echo "Pipeline GitLab terminou com estado ${state}."
+              echo "Build: ${page}"
+              if [ "${state}" != "succeeded" ]; then
+                echo "Build do Mac terminou com falha."
+                cat "${errfile}"
+                echo
+                cat "${logfile}"
+                rm -f "${errfile}" "${logfile}"
                 exit 1
               fi
-              echo "Pipeline GitLab concluído com sucesso."
+              rm -f "${errfile}" "${logfile}"
+              echo "Build do Mac concluído."
               exit 0
               ;;
-            created|waiting_for_resource|preparing|pending|running|scheduled|manual)
+            queued|running)
+              rm -f "${errfile}" "${logfile}"
               sleep "${interval}"
               ;;
             *)
               echo "Estado desconhecido: ${state}."
+              rm -f "${errfile}" "${logfile}"
               exit 1
               ;;
           esac

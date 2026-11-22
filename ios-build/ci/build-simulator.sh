@@ -15,6 +15,7 @@ xcodebuild \
   -destination "generic/platform=iOS Simulator" \
   -derivedDataPath "${derived}" \
   CODE_SIGNING_ALLOWED=NO \
+  ENABLE_USER_SCRIPT_SANDBOXING=NO \
   build
 
 app="$(find "${derived}/Build/Products" -type d -name '*.app' | head -n 1)"

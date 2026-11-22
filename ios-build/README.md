@@ -1,5 +1,66 @@
 # Executor iOS no Mac
 
+O caminho usado pelo Tekton é o agente local. Ele consulta o Build Coordinator no OpenShift, executa os scripts desta pasta `ci/` e devolve o IPA. O GitLab Runner continua instalado, mas a esteira não dispara mais o GitLab CI.
+
+O coordenador e o contrato do agente estão em `macos-build-coordinator/` e `macos-build-agent/`. O agente só aceita o conjunto `ios-build-v1` e os sete scripts desta pasta. A API não envia comandos de shell.
+
+## Solução
+
+O Developer Hub gera o pipeline. O Tekton, no OpenShift, clona o código, publica a análise no SonarQube e registra o pedido no Build Coordinator. O agente no Mac M1 consulta a fila por HTTPS, executa os scripts desta pasta com o Xcode e devolve o IPA. O Tekton baixa esse arquivo. A publicação na App Store Mock permanece desligada. O pipeline Android segue no próprio cluster, com Gradle, e não passa pelo coordenador.
+
+```mermaid
+flowchart TB
+  card[Onboarding mobile no Developer Hub]
+  subgraph openshift [OpenShift / namespace prodemge]
+    pipeline[Pipeline iOS]
+    sonar[SonarQube]
+    coordinator[Build Coordinator]
+    store[(SQLite e IPA)]
+    mock[App Store Mock]
+  end
+  subgraph mac [Mac M1]
+    agent[Build Agent]
+    xcode[Xcode e scripts ios-build-v1]
+  end
+  card --> pipeline
+  pipeline --> sonar
+  pipeline -->|POST /builds| coordinator
+  coordinator --> store
+  agent -->|consulta a fila por HTTPS| coordinator
+  agent --> xcode
+  agent -->|envia o IPA| coordinator
+  pipeline -->|GET do IPA| coordinator
+  pipeline -.->|publicação desligada| mock
+```
+
+```mermaid
+sequenceDiagram
+  participant Tekton
+  participant Coordinator as Build Coordinator
+  participant Agent as Agente no Mac
+  participant Xcode
+  Tekton->>Tekton: clone
+  Tekton->>Tekton: análise no SonarQube
+  Tekton->>Coordinator: POST /builds
+  loop a cada 15 segundos
+    Agent->>Coordinator: POST /builds/claim
+  end
+  Coordinator-->>Agent: repositório, revisão, pasta e pilha
+  Agent->>Xcode: scripts ios-build-v1
+  Xcode-->>Agent: IPA
+  Agent->>Coordinator: PUT do IPA e POST /complete
+  loop até o estado terminal
+    Tekton->>Coordinator: GET /builds/id
+  end
+  Tekton->>Coordinator: GET do IPA
+```
+
+O GitLab Runner permanece instalado no Mac e fica fora deste caminho. O coordenador é um componente do laboratório, no Deployment `macos-build-coordinator`. Não é um executor macOS do OpenShift Pipelines.
+
+## GitLab Runner
+
+O texto abaixo descreve o runner que ficou no Mac. Ele não faz parte do caminho atual da esteira.
+
 O GitLab do laboratório é o Community Edition 18.10.1. O Runner instalado é o binário oficial 18.10.1 para Apple Silicon, conferido pelo `release.sha256` publicado em `gitlab-runner-downloads`. Ele não vem do Homebrew, cuja fórmula acompanha uma linha mais nova.
 
 O binário fica em `~/.local/bin/gitlab-runner`. O serviço é um LaunchAgent do usuário, não um daemon de root. A configuração fica em `~/.gitlab-runner/config.toml`, com permissão restrita ao usuário. O token do runner não entra no Git.
@@ -32,7 +93,7 @@ Os logs ficam em `~/gitlab-runner/logs/gitlab-runner.out.log` e `~/gitlab-runner
 
 ## Pipeline Tekton
 
-O Pipeline `ios-build-remote`, no namespace `prodemge`, executa nesta ordem: `clone`, `static-analysis`, `request-build`, `wait`, `fetch-ipa` e `publish`. O clone e o SonarQube rodam no OpenShift. O `request-build` pede o job ao GitLab, e o `wait` segura a esteira até esse job terminar. O `fetch-ipa` baixa o IPA dos artefatos. O `publish` envia esse arquivo à App Store Mock.
+O Pipeline `ios-build-remote`, no namespace `prodemge`, executa nesta ordem: `clone`, `static-analysis`, `request-build`, `wait`, `fetch-ipa` e `publish`. O clone e o SonarQube rodam no OpenShift. O `request-build` registra o pedido no coordenador, o `wait` acompanha o agente do Mac e o `fetch-ipa` baixa o IPA dessa fila. O `publish` envia esse arquivo à App Store Mock.
 
 Os PipelineRuns anteriores a essa alteração só têm `trigger` e `wait`. A visualização nova está no Pipeline, e numa execução criada depois da alteração.
 

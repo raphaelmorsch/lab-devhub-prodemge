@@ -12,7 +12,7 @@ spec:
     - name: project-id
       type: string
       default: "16"
-      description: Projeto GitLab development/ios-build, que é o único autorizado a usar o runner macOS.
+      description: Mantido para compatibilidade. O build iOS vai para o agente do Mac, sem GitLab Runner.
     - name: git-ref
       type: string
       default: main

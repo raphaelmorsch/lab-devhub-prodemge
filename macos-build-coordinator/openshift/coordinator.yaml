@@ -1,0 +1,129 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: macos-build-coordinator-data
+  namespace: prodemge
+  labels:
+    app.kubernetes.io/name: macos-build-coordinator
+    app.kubernetes.io/part-of: prodemge-ios
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ocs-storagecluster-ceph-rbd
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: macos-build-coordinator
+  namespace: prodemge
+  labels:
+    app.kubernetes.io/name: macos-build-coordinator
+    app.kubernetes.io/part-of: prodemge-ios
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: macos-build-coordinator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: macos-build-coordinator
+        app.kubernetes.io/part-of: prodemge-ios
+    spec:
+      securityContext:
+        fsGroup: 1001030000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: coordinator
+          image: image-registry.openshift-image-registry.svc:5000/prodemge/macos-build-coordinator:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: DATA_DIR
+              value: /data
+            - name: LEASE_SECONDS
+              value: "180"
+            - name: TEKTON_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: macos-build-api
+                  key: token
+            - name: AGENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: macos-build-api
+                  key: agent-token
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: macos-build-coordinator-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: macos-build-coordinator
+  namespace: prodemge
+  labels:
+    app.kubernetes.io/name: macos-build-coordinator
+    app.kubernetes.io/part-of: prodemge-ios
+spec:
+  selector:
+    app.kubernetes.io/name: macos-build-coordinator
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: macos-build-coordinator
+  namespace: prodemge
+  labels:
+    app.kubernetes.io/name: macos-build-coordinator
+    app.kubernetes.io/part-of: prodemge-ios
+spec:
+  to:
+    kind: Service
+    name: macos-build-coordinator
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

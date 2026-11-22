@@ -6,7 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: prodemge-ios
 spec:
-  description: Clona a aplicação, publica a análise no SonarQube, pede o build ao Mac, baixa o IPA e publica na App Store Mock.
+  description: Clona a aplicação, publica a análise no SonarQube, pede o build ao agente do Mac, baixa o IPA e publica na App Store Mock.
   params:
     - name: project-id
       type: string
@@ -14,7 +14,7 @@ spec:
     - name: git-ref
       type: string
       default: main
-      description: Branch, tag ou SHA do projeto development/ios-build. Não é o commit da aplicação.
+      description: Mantido para compatibilidade. O agente não usa o GitLab CI; a revisão compilada é source-revision.
     - name: react-native-version
       type: string
       default: rn-0.87.1

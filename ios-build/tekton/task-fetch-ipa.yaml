@@ -6,18 +6,25 @@ metadata:
   labels:
     app.kubernetes.io/part-of: prodemge-ios
 spec:
-  description: Baixa os artefatos do job ios-build e deixa o IPA no workspace. Falha se o Mac não tiver produzido um IPA.
+  description: Baixa o IPA publicado pelo Mac no coordenador e deixa o arquivo no workspace.
   params:
+    - name: coordinator-url
+      type: string
+      default: "http://macos-build-coordinator.prodemge.svc:8080"
     - name: gitlab-url
       type: string
-      default: "https://gitlab-gitlab.apps.ocp.bct9l.sandbox1479.opentlc.com"
+      default: ""
+      description: Mantido para pipelines já gerados. O download vem do coordenador.
     - name: project-id
       type: string
+      default: ""
+      description: Mantido para pipelines já gerados.
     - name: pipeline-id
       type: string
+      description: Identificador do build devolvido pelo coordenador.
     - name: secret-name
       type: string
-      default: gitlab-ios-build
+      default: macos-build-api
   workspaces:
     - name: source
   results:
@@ -27,7 +34,7 @@ spec:
     - name: fetch
       image: image-registry.openshift-image-registry.svc:5000/openshift/nodejs:22-ubi8
       env:
-        - name: GITLAB_TOKEN
+        - name: COORDINATOR_TOKEN
           valueFrom:
             secretKeyRef:
               name: $(params.secret-name)
@@ -35,61 +42,41 @@ spec:
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
-        if [ -z "${GITLAB_TOKEN}" ]; then
-          echo "Token do GitLab ausente no Secret $(params.secret-name)."
+        if [ -z "${COORDINATOR_TOKEN}" ]; then
+          echo "Token do coordenador ausente no Secret $(params.secret-name)."
           exit 1
         fi
-        base="$(params.gitlab-url)"
+        base="$(params.coordinator-url)"
         base="${base%/}"
-        project="$(params.project-id)"
-        pipeline="$(params.pipeline-id)"
+        build="$(params.pipeline-id)"
         dest="$(workspaces.source.path)/ipa"
         rm -rf "${dest}"
         mkdir -p "${dest}"
-        jobs="${base}/api/v4/projects/${project}/pipelines/${pipeline}/jobs"
+        archive="${dest}/app.ipa"
         tmp="$(mktemp)"
-        status="$(curl -sS --max-time 60 -o "${tmp}" -w "%{http_code}" \
-          -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
-          "${jobs}" || true)"
+        status="$(curl -sS --max-time 180 -o "${archive}" -w "%{http_code}" \
+          -H "Authorization: Bearer ${COORDINATOR_TOKEN}" \
+          -D "${tmp}" \
+          "${base}/builds/${build}/artifact" || true)"
         if [ "${status}" != "200" ]; then
-          echo "Não foi possível listar os jobs do pipeline ${pipeline}. HTTP ${status}."
-          rm -f "${tmp}"
+          echo "Download do IPA falhou. HTTP ${status}."
+          rm -f "${tmp}" "${archive}"
           exit 1
         fi
-        job_id="$(node -e '
+        rm -f "${tmp}"
+        node -e '
           const fs = require("fs");
-          const jobs = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-          const match = jobs.find((job) => job.name === "ios-build");
-          if (!match) process.exit(2);
-          process.stdout.write(String(match.id));
-        ' "${tmp}")" || {
-          echo "O pipeline ${pipeline} não tem job ios-build."
-          rm -f "${tmp}"
+          const fd = fs.openSync(process.argv[1], "r");
+          const buf = Buffer.alloc(2);
+          const read = fs.readSync(fd, buf, 0, 2, 0);
+          fs.closeSync(fd);
+          if (read !== 2 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
+            process.exit(1);
+          }
+        ' "${archive}" || {
+          echo "O arquivo recebido não é um IPA."
+          rm -f "${archive}"
           exit 1
         }
-        rm -f "${tmp}"
-        echo "Job ios-build ${job_id}."
-
-        archive="${dest}/artifacts.zip"
-        status="$(curl -sS --max-time 180 -o "${archive}" -w "%{http_code}" \
-          -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
-          "${base}/api/v4/projects/${project}/jobs/${job_id}/artifacts" || true)"
-        if [ "${status}" != "200" ]; then
-          echo "Download dos artefatos falhou. HTTP ${status}."
-          exit 1
-        fi
-        unzip -q "${archive}" -d "${dest}/unpacked"
-        rm -f "${archive}"
-
-        ipa="$(find "${dest}/unpacked" -type f -name '*.ipa' -print | head -n 1)"
-        if [ -z "${ipa}" ]; then
-          echo "O job ${job_id} não entregou um IPA."
-          status_file="$(find "${dest}/unpacked" -type f -name 'signing-status.txt' -print | head -n 1)"
-          if [ -n "${status_file}" ]; then
-            cat "${status_file}"
-          fi
-          exit 1
-        fi
-        cp "${ipa}" "${dest}/app.ipa"
-        printf '%s' "${dest}/app.ipa" > "$(results.ipa-path.path)"
-        echo "IPA em ${dest}/app.ipa"
+        printf '%s' "${archive}" > "$(results.ipa-path.path)"
+        echo "IPA em ${archive}"
