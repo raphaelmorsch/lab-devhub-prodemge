@@ -74,6 +74,25 @@ spec:
         deadline="$((SECONDS + timeout))"
         url="${base}/builds/${build}"
         echo "Aguardando build ${build}."
+        log_offset=0
+        fetch_log() {
+          local headers body code size
+          headers="$(mktemp)"
+          body="$(mktemp)"
+          code="$(curl -sS --max-time 60 -D "${headers}" -o "${body}" -w "%{http_code}" \
+            -H "Authorization: Bearer ${COORDINATOR_TOKEN}" \
+            "${base}/builds/${build}/log?offset=${log_offset}" || true)"
+          if [ "${code}" = "200" ]; then
+            size="$(awk 'tolower($1)=="x-log-size:" {gsub("\r","",$2); print $2}' "${headers}")"
+            if [ -s "${body}" ]; then
+              cat "${body}"
+            fi
+            if [ -n "${size}" ]; then
+              log_offset="${size}"
+            fi
+          fi
+          rm -f "${headers}" "${body}"
+        }
 
         while true; do
           if [ "${SECONDS}" -ge "${deadline}" ]; then
@@ -119,6 +138,7 @@ spec:
             fs.writeFileSync(process.argv[3], data.log_tail || "");
           ' "${tmp}" "${errfile}" "${logfile}"
           rm -f "${tmp}"
+          fetch_log
           echo "Estado ${state}."
           case "${state}" in
             succeeded|failed)
@@ -136,8 +156,10 @@ spec:
               if [ "${state}" != "succeeded" ]; then
                 echo "Build do Mac terminou com falha."
                 cat "${errfile}"
-                echo
-                cat "${logfile}"
+                if [ "${log_offset}" = "0" ]; then
+                  echo
+                  cat "${logfile}"
+                fi
                 rm -f "${errfile}" "${logfile}"
                 exit 1
               fi

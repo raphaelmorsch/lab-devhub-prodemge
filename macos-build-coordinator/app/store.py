@@ -9,6 +9,7 @@ from pathlib import Path
 ALLOWED_SCRIPT_SET = "ios-build-v1"
 ALLOWED_RN = ("rn-0.87.1", "rn-0.88.1")
 MAX_LOG = 65536
+MAX_STORED_LOG = 16 * 1024 * 1024
 
 
 def data_dir():
@@ -77,6 +78,19 @@ def init_db():
 
 def artifact_path(build_id):
     return data_dir() / "artifacts" / build_id / "app.ipa"
+
+
+def log_path(build_id):
+    return data_dir() / "logs" / build_id / "build.log"
+
+
+def remove_log(build_id):
+    path = log_path(build_id)
+    if path.exists():
+        path.unlink()
+    parent = path.parent
+    if parent.exists() and not any(parent.iterdir()):
+        parent.rmdir()
 
 
 def trim_log(value):
@@ -154,6 +168,7 @@ def create_build(fields):
                 artifact = artifact_path(existing["id"])
                 if artifact.exists():
                     artifact.unlink()
+                remove_log(existing["id"])
                 conn.execute(
                     """
                     UPDATE builds
@@ -292,6 +307,48 @@ def heartbeat(build_id, lease):
         except Exception:
             conn.execute("ROLLBACK")
             raise
+
+
+def append_log(build_id, lease, text):
+    with session() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            expire_leases(conn)
+            row, state = running_with_lease(conn, build_id, lease)
+            if state != "ok":
+                conn.execute("COMMIT")
+                return state, 0
+            path = log_path(build_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            current = path.read_bytes() if path.exists() else b""
+            combined = current + text.encode("utf-8")
+            if len(combined) > MAX_STORED_LOG:
+                combined = combined[-MAX_STORED_LOG:]
+            path.write_bytes(combined)
+            conn.execute(
+                """
+                UPDATE builds
+                SET log_tail = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (trim_log(combined.decode("utf-8", errors="replace")), now_iso(), build_id),
+            )
+            conn.execute("COMMIT")
+            return "ok", len(combined)
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+
+def read_log(build_id, offset):
+    row = get_build(build_id)
+    if row is None:
+        return None
+    path = log_path(build_id)
+    data = path.read_bytes() if path.is_file() else b""
+    reset = offset > len(data)
+    chunk = data if reset else data[offset:]
+    return chunk, len(data), reset
 
 
 def save_artifact(build_id, lease, payload):

@@ -22,7 +22,7 @@ flowchart TB
   coordinator --> store
   agent -->|consulta a fila por HTTPS| coordinator
   agent --> xcode
-  agent -->|envia o IPA| coordinator
+  agent -->|envia o log e o IPA| coordinator
   pipeline -->|GET do IPA| coordinator
   pipeline -.->|publicação desligada| mock
 ```
@@ -36,6 +36,7 @@ O estado fica em SQLite no PVC `macos-build-coordinator-data`. Há duas credenci
 - `GET /builds/{id}/artifact` baixa o IPA depois do sucesso.
 - `POST /builds/claim` entrega o job mais antigo ao agente, um por vez.
 - `POST /builds/{id}/heartbeat` renova o lease.
+- `POST /builds/{id}/log` recebe trechos do log enquanto o build está em execução. O arquivo fica no PVC e `GET /builds/{id}/log` devolve o texto, a partir de `offset`.
 - `PUT /builds/{id}/artifact` recebe o IPA.
 - `POST /builds/{id}/complete` e `POST /builds/{id}/fail` encerram o job.
 

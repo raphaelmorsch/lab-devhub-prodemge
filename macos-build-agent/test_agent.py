@@ -47,6 +47,20 @@ class AgentContractTest(unittest.TestCase):
             (root / "extra.sh").write_text("#!/bin/bash\n", encoding="utf-8")
             self.assertEqual([path.name for path in agent.script_list(root)], list(agent.SCRIPTS))
 
+    def test_pending_log_sends_complete_lines_and_flushes_the_tail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "build.log"
+            path.write_bytes(b"linha 1\nlinha parcial")
+            text, offset = agent.pending_log(path, 0)
+            self.assertEqual(text, "linha 1\n")
+            self.assertEqual(offset, len(b"linha 1\n"))
+            held, held_offset = agent.pending_log(path, offset)
+            self.assertEqual(held, "")
+            self.assertEqual(held_offset, offset)
+            flushed, end = agent.pending_log(path, offset, force=True)
+            self.assertEqual(flushed, "linha parcial")
+            self.assertEqual(end, path.stat().st_size)
+
     def test_environment_has_no_shell_injection_slot(self):
         job = agent.validate_job(self.job())
         env = agent.build_env(job, Path("/tmp/workspace"), "/usr/bin")

@@ -29,6 +29,7 @@ SUBDIR = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
 SHA = re.compile(r"^[0-9a-fA-F]{7,64}$")
 REQUEST_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 MAX_LOG = 65536
+MAX_LOG_CHUNK = 256 * 1024
 
 
 class JobRejected(Exception):
@@ -156,6 +157,26 @@ def log_tail(path):
     return data.decode("utf-8", errors="replace")
 
 
+def pending_log(path, offset, force=False):
+    if not path.is_file():
+        return "", offset
+    data = path.read_bytes()
+    if offset < 0 or offset > len(data):
+        offset = 0
+    chunk = data[offset:]
+    if not chunk:
+        return "", offset
+    if len(chunk) > MAX_LOG_CHUNK:
+        chunk = chunk[:MAX_LOG_CHUNK]
+    elif not force and not chunk.endswith(b"\n"):
+        cut = chunk.rfind(b"\n")
+        if cut < 0:
+            return "", offset
+        chunk = chunk[: cut + 1]
+    text = chunk.decode("utf-8", errors="replace").replace("\x00", "")
+    return text, offset + len(chunk)
+
+
 class CoordinatorClient:
     def __init__(self, base_url, token_file, ca_file=""):
         parsed = urlparse(base_url)
@@ -210,6 +231,15 @@ class CoordinatorClient:
     def heartbeat(self, job):
         self.request("POST", f"/builds/{job['id']}/heartbeat", {}, lease=job["lease_token"])
 
+    def append_log(self, job, text):
+        self.request(
+            "POST",
+            f"/builds/{job['id']}/log",
+            text.encode("utf-8"),
+            lease=job["lease_token"],
+            content_type="text/plain; charset=utf-8",
+        )
+
     def upload(self, job, ipa_path):
         payload = ipa_path.read_bytes()
         self.request(
@@ -235,6 +265,23 @@ class CoordinatorClient:
             {"error": error[:2000], "ipa_status": status_name, "log_tail": tail[-MAX_LOG:]},
             lease=job["lease_token"],
         )
+
+
+class LogShipper:
+    def __init__(self):
+        self.offset = 0
+        self.lock = threading.Lock()
+
+    def push(self, client, job, path, force=False):
+        with self.lock:
+            while True:
+                text, new_offset = pending_log(path, self.offset, force=force)
+                if not text:
+                    self.offset = new_offset
+                    return
+                client.append_log(job, text)
+                self.offset = new_offset
+                force = False
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -284,6 +331,9 @@ def execute(job, config, client):
     env = build_env(job, workspace, config["path"])
     lost = threading.Event()
     stop = threading.Event()
+    shipper = LogShipper()
+    log_path = workspace / "build.log"
+    published = False
 
     def beat():
         while not stop.wait(config["heartbeat_interval"]):
@@ -293,25 +343,39 @@ def execute(job, config, client):
                 print(str(exc), flush=True)
                 lost.set()
                 return
+            try:
+                shipper.push(client, job, log_path)
+            except JobFailed as exc:
+                print(f"Não foi possível enviar o log: {exc}", flush=True)
+
+    def publish_log(force=False):
+        try:
+            shipper.push(client, job, log_path, force=force)
+        except JobFailed as exc:
+            print(f"Não foi possível enviar o log: {exc}", flush=True)
 
     thread = threading.Thread(target=beat, name="macos-build-heartbeat")
     thread.start()
     try:
         run_scripts(job, workspace, scripts, env, time.monotonic() + config["job_timeout"], lost)
+        publish_log(force=True)
         ipa = workspace / "output" / "app.ipa"
         status_name = ipa_status(workspace)
-        tail = log_tail(workspace / "build.log")
+        tail = log_tail(log_path)
         if not ipa.is_file() or ipa.read_bytes()[:2] != b"PK":
             detail = status_name or "nenhum IPA"
             raise JobFailed(f"O Mac não produziu um IPA ({detail}).", status_name)
         client.upload(job, ipa)
         client.complete(job, resolved_sha(workspace), status_name or "exported", tail)
+        published = True
         print(f"Build {job['id']} concluído.", flush=True)
     except JobFailed:
         raise
     finally:
         stop.set()
         thread.join(timeout=5)
+        if not published:
+            publish_log(force=True)
         source = workspace / "source"
         if source.exists():
             shutil.rmtree(source, ignore_errors=True)

@@ -28,7 +28,7 @@ flowchart TB
   coordinator --> store
   agent -->|consulta a fila por HTTPS| coordinator
   agent --> xcode
-  agent -->|envia o IPA| coordinator
+  agent -->|envia o log e o IPA| coordinator
   pipeline -->|GET do IPA| coordinator
   pipeline -.->|publicação desligada| mock
 ```
@@ -47,10 +47,14 @@ sequenceDiagram
   end
   Coordinator-->>Agent: repositório, revisão, pasta e pilha
   Agent->>Xcode: scripts ios-build-v1
+  loop durante a compilação
+    Agent->>Coordinator: POST /builds/id/log
+  end
   Xcode-->>Agent: IPA
   Agent->>Coordinator: PUT do IPA e POST /complete
   loop até o estado terminal
     Tekton->>Coordinator: GET /builds/id
+    Tekton->>Coordinator: GET /builds/id/log
   end
   Tekton->>Coordinator: GET do IPA
 ```

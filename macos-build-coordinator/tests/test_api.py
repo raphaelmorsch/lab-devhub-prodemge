@@ -125,6 +125,45 @@ class CoordinatorTest(unittest.TestCase):
         self.assertEqual(again.json()["id"], build_id)
         self.assertEqual(again.json()["status"], "queued")
 
+    def test_agent_streams_the_build_log(self):
+        created = self.create(build_request_id="ios-log")
+        build_id = created.json()["id"]
+        claimed = self.client.post("/builds/claim", headers=agent(self.client))
+        lease = claimed.json()["lease_token"]
+        first = self.client.post(
+            f"/builds/{build_id}/log",
+            headers=agent(self.client, lease),
+            content=b"checkout ok\n",
+        )
+        self.assertEqual(first.status_code, 200)
+        second = self.client.post(
+            f"/builds/{build_id}/log",
+            headers=agent(self.client, lease),
+            content="archive ok\n".encode(),
+        )
+        self.assertEqual(second.status_code, 200)
+        denied = self.client.get(f"/builds/{build_id}/log", headers=agent(self.client, lease))
+        self.assertEqual(denied.status_code, 401)
+        opened = self.client.get(f"/builds/{build_id}/log?offset=12", headers=tekton(self.client))
+        self.assertEqual(opened.status_code, 200)
+        self.assertEqual(opened.text, "archive ok\n")
+        self.assertEqual(opened.headers["x-log-size"], str(second.json()["bytes"]))
+        self.assertEqual(opened.headers["x-log-reset"], "0")
+        status = self.client.get(f"/builds/{build_id}", headers=tekton(self.client))
+        self.assertIn("archive ok", status.json()["log_tail"])
+        self.client.post(
+            f"/builds/{build_id}/fail",
+            headers=agent(self.client, lease),
+            json={"error": "sandbox", "ipa_status": "archive-failed", "log_tail": "archive ok"},
+        )
+        again = self.create(build_request_id="ios-log")
+        self.assertEqual(again.json()["status"], "queued")
+        cleared = self.client.post("/builds/claim", headers=agent(self.client))
+        self.assertEqual(cleared.status_code, 200)
+        empty = self.client.get(f"/builds/{build_id}/log", headers=tekton(self.client))
+        self.assertEqual(empty.status_code, 200)
+        self.assertEqual(empty.content, b"")
+
     def test_expired_lease_fails_the_build(self):
         os.environ["LEASE_SECONDS"] = "-1"
         try:

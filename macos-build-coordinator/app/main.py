@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict
 from app import store
 
 MAX_IPA_BYTES = 100 * 1024 * 1024
+MAX_LOG_CHUNK = 1024 * 1024
 REQUEST_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 REVISION = re.compile(r"^[A-Za-z0-9._/-]{1,128}$")
 SUBDIR = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
@@ -200,6 +201,37 @@ def claim(request: Request):
     if job is None:
         return Response(status_code=204)
     return job
+
+
+@app.post("/builds/{build_id}/log")
+async def append_build_log(build_id: str, request: Request):
+    require_agent(request)
+    payload = await request.body()
+    if len(payload) > MAX_LOG_CHUNK:
+        reject(413, "O trecho de log excede o limite.")
+    text = payload.decode("utf-8", errors="replace").replace("\x00", "")
+    if not text:
+        return Response(status_code=204)
+    state, size = store.append_log(build_id, lease_of(request), text)
+    if state != "ok":
+        lease_error(state)
+    return {"bytes": size}
+
+
+@app.get("/builds/{build_id}/log")
+def read_build_log(build_id: str, request: Request, offset: int = 0):
+    require_tekton(request)
+    if offset < 0:
+        reject(400, "O offset do log é inválido.")
+    found = store.read_log(build_id, offset)
+    if found is None:
+        reject(404, "Build não encontrado.")
+    chunk, size, reset = found
+    return Response(
+        content=chunk,
+        media_type="text/plain; charset=utf-8",
+        headers={"X-Log-Size": str(size), "X-Log-Reset": "1" if reset else "0"},
+    )
 
 
 @app.post("/builds/{build_id}/heartbeat")
