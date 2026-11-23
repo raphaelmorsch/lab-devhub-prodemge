@@ -19,7 +19,7 @@ function App(): React.JSX.Element {
         <Text style={styles.title}>SISP Mobile 0.87.1 PRODEMGE</Text>
         <Text style={styles.lead}>
           Exemplo da pilha React Native 0.87.1, equivalente à branch
-          b-atualizacao-react. O nome exibido no Android muda conforme o
+          b-atualizacao-react. O nome exibido na Aplicação muda conforme o
           flavor.
         </Text>
         {FACTS.map(([label, value]) => (
